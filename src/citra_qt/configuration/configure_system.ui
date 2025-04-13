@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
+<!-- FILE MODIFIED BY AzaharPlus APRIL 2025 -->
 <ui version="4.0">
  <class>ConfigureSystem</class>
  <widget class="QWidget" name="ConfigureSystem">
@@ -456,14 +457,14 @@
             <item row="17" column="1">
              <widget class="QCheckBox" name="allow_plugin_loader">
               <property name="text">
-               <string>Allow games to change plugin loader state</string>
+               <string>Allow applications to change plugin loader state</string>
               </property>
              </widget>
             </item>
             <item row="18" column="0">
              <widget class="QLabel" name="label_nus_download">
               <property name="text">
-               <string>Download System Files from Nitendo servers</string>
+               <string>Download System Files from Nintendo servers</string>
               </property>
              </widget>
             </item>
@@ -629,60 +630,24 @@
              </widget>
             </item>
             <item row="3" column="0">
-             <widget class="QLabel" name="label_otp">
+             <widget class="QLabel" name="label_ct_cert">
               <property name="text">
-               <string>OTP</string>
+               <string>CTCert</string>
               </property>
              </widget>
             </item>
             <item row="3" column="1">
-             <widget class="QWidget" name="otp">
-              <layout class="QHBoxLayout" name="horizontalLayout_otp">
+             <widget class="QWidget" name="ct_cert">
+              <layout class="QHBoxLayout" name="horizontalLayout_ct_cert">
                <item>
-                <widget class="QLabel" name="label_otp_status">
+                <widget class="QLabel" name="label_ct_cert_status">
                  <property name="text">
                   <string/>
                  </property>
                 </widget>
                </item>
                <item>
-                <widget class="QPushButton" name="button_otp">
-                 <property name="sizePolicy">
-                  <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
-                   <horstretch>0</horstretch>
-                   <verstretch>0</verstretch>
-                  </sizepolicy>
-                 </property>
-                 <property name="layoutDirection">
-                  <enum>Qt::RightToLeft</enum>
-                 </property>
-                 <property name="text">
-                  <string>Choose</string>
-                 </property>
-                </widget>
-               </item>
-              </layout>
-             </widget>
-            </item>
-            <item row="4" column="0">
-             <widget class="QLabel" name="label_movable">
-              <property name="text">
-               <string>movable.sed</string>
-              </property>
-             </widget>
-            </item>
-            <item row="4" column="1">
-             <widget class="QWidget" name="movable">
-              <layout class="QHBoxLayout" name="horizontalLayout_movable">
-               <item>
-                <widget class="QLabel" name="label_movable_status">
-                 <property name="text">
-                  <string/>
-                 </property>
-                </widget>
-               </item>
-               <item>
-                <widget class="QPushButton" name="button_movable">
+                <widget class="QPushButton" name="button_ct_cert">
                  <property name="sizePolicy">
                   <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
                    <horstretch>0</horstretch>
@@ -706,7 +671,7 @@
          <item>
           <widget class="QLabel" name="label_disable_info">
            <property name="text">
-            <string>System settings are available only when game is not running.</string>
+            <string>System settings are available only when applications is not running.</string>
            </property>
            <property name="wordWrap">
             <bool>true</bool>

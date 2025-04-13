@@ -1,4 +1,6 @@
-// Copyright 2017 Citra Emulator Project
+//FILE MODIFIED BY AzaharPlus APRIL 2025
+
+// Copyright Citra Emulator Project / Azahar Emulator Project
 // Licensed under GPLv2 or any later version
 // Refer to the license.txt file included.
 
@@ -348,13 +350,21 @@ private:
     bool is_loaded = false;
     bool is_compressed = false;
 
+    bool is_encrypted = false;
+    // for decrypting exheader, exefs header and icon/banner section
+    std::array<u8, 16> primary_key{};
+    std::array<u8, 16> secondary_key{}; // for decrypting romfs and .code section
+    std::array<u8, 16> exheader_ctr{};
+    std::array<u8, 16> exefs_ctr{};
+    std::array<u8, 16> romfs_ctr{};
+
     u32 ncch_offset = 0; // Offset to NCCH header, can be 0 for NCCHs or non-zero for CIAs/NCSDs
     u32 exefs_offset = 0;
     u32 partition = 0;
 
     std::string filepath;
-    FileUtil::IOFile file;
-    FileUtil::IOFile exefs_file;
+    std::unique_ptr<FileUtil::IOFile> file;
+    std::unique_ptr<FileUtil::IOFile> exefs_file;
 };
 
 } // namespace FileSys

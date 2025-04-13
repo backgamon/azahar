@@ -1,4 +1,6 @@
-// Copyright 2014 Citra Emulator Project
+//FILE MODIFIED BY AzaharPlus APRIL 2025
+
+// Copyright Citra Emulator Project / Azahar Emulator Project
 // Licensed under GPLv2 or any later version
 // Refer to the license.txt file included.
 
@@ -180,6 +182,28 @@ enum class AccessFlag : u16 {
     Global = UserRead | SystemRead | SystemWrite,
 };
 DECLARE_ENUM_FLAG_OPERATORS(AccessFlag);
+
+struct SecureInfoA {
+    std::array<u8, 0x100> signature;
+    u8 region;
+    u8 unknown;
+    std::array<u8, 0xF> serial_number;
+};
+static_assert(sizeof(SecureInfoA) == 0x111);
+
+struct LocalFriendCodeSeedB {
+    std::array<u8, 0x100> signature;
+    u64 unknown;
+    u64 friend_code_seed;
+};
+static_assert(sizeof(LocalFriendCodeSeedB) == 0x110);
+
+enum class SecureDataLoadStatus {
+    Loaded,
+    NotFound,
+    Invalid,
+    IOError,
+};
 
 class Module final {
 public:
@@ -484,7 +508,9 @@ private:
     void LoadMCUConfig();
 
 public:
-    u32 GetRegionValue();
+    u32 GetRegionValue(bool from_secure_info);
+
+    static bool IsValidRegionCountry(u32 region, u8 country_code);
 
     // Utilities for frontend to set config data.
     // Note: UpdateConfigNANDSavegame should be called after making changes to config data.
@@ -622,6 +648,45 @@ public:
      */
     void SaveMCUConfig();
 
+    /**
+     * Get a reference to the console's MAC address
+     */
+    std::string& GetMacAddress();
+
+    /**
+     * Saves the current MAC address to the filesystem
+     */
+    void SaveMacAddress();
+
+    /**
+     * Invalidates the loaded secure data so that it is loaded again.
+     */
+    void InvalidateSecureData();
+    /**
+     * Loads the LocalFriendCodeSeed_B file from NAND.
+     * @returns LocalFriendCodeSeedBLoadStatus indicating the file load status.
+     */
+    SecureDataLoadStatus LoadSecureInfoAFile();
+
+    /**
+     * Loads the LocalFriendCodeSeed_B file from NAND.
+     * @returns LocalFriendCodeSeedBLoadStatus indicating the file load status.
+     */
+    SecureDataLoadStatus LoadLocalFriendCodeSeedBFile();
+
+    /**
+     * Gets the SecureInfo_A path in the host filesystem
+     * @returns std::string SecureInfo_A path in the host filesystem
+     */
+    std::string GetSecureInfoAPath();
+
+    /**
+     * Gets the LocalFriendCodeSeed_B path in the host filesystem
+     * @returns std::string LocalFriendCodeSeed_B path in the host filesystem
+     */
+    std::string GetLocalFriendCodeSeedBPath();
+
+
 private:
     void UpdatePreferredRegionCode();
     SystemLanguage GetRawSystemLanguage();
@@ -632,8 +697,13 @@ private:
     std::array<u8, CONFIG_SAVEFILE_SIZE> cfg_config_file_buffer;
     std::unique_ptr<FileSys::ArchiveBackend> cfg_system_save_data_archive;
     u32 preferred_region_code = 0;
+    bool secure_info_a_loaded = false;
+    SecureInfoA secure_info_a;
+    bool local_friend_code_seed_b_loaded = false;
+    LocalFriendCodeSeedB local_friend_code_seed_b;
     bool preferred_region_chosen = false;
     MCUData mcu_data{};
+    std::string mac_address{};
 
     std::shared_ptr<Network::ArticBase::Client> artic_client = nullptr;
 
@@ -648,6 +718,16 @@ void InstallInterfaces(Core::System& system);
 
 /// Convenience function for getting a SHA256 hash of the Console ID
 std::string GetConsoleIdHash(Core::System& system);
+
+std::array<u8, 6> MacToArray(const std::string& mac);
+
+std::string MacToString(u64 mac);
+
+std::string MacToString(const std::array<u8, 6>& mac);
+
+u64 MacToU64(const std::string& mac);
+
+std::string GenerateRandomMAC();
 
 } // namespace Service::CFG
 

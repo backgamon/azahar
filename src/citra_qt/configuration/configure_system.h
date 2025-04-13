@@ -1,3 +1,5 @@
+//FILE MODIFIED BY AzaharPlus APRIL 2025
+
 // Copyright 2016 Citra Emulator Project
 // Licensed under GPLv2 or any later version
 // Refer to the license.txt file included.
@@ -53,6 +55,7 @@ private:
     void RefreshConsoleID();
 
     void InstallSecureData(const std::string& from_path, const std::string& to_path);
+    void InstallCTCert(const std::string& from_path);
     void RefreshSecureDataStatus();
 
     void SetupPerGameUI();

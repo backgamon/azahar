@@ -115,7 +115,10 @@ else()
         -fstack-clash-protection
     )
 
-    if (NOT CMAKE_BUILD_TYPE STREQUAL Debug)
+    # If we define _FORTIFY_SOURCE when it is already defined, compilation will fail
+    string(FIND "-D_FORTIFY_SOURCE" "${CMAKE_CXX_FLAGS} " FORTIFY_SOURCE_DEFINED)
+
+    if (NOT CMAKE_BUILD_TYPE STREQUAL Debug AND NOT FORTIFY_SOURCE_DEFINED)
         # _FORTIFY_SOURCE can't be used without optimizations.
         add_compile_options(-U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=2)
     endif()
@@ -192,7 +195,7 @@ if (ENABLE_QT OR ENABLE_SDL2_FRONTEND)
     add_subdirectory(citra_meta)
 endif()
 
-if (ENABLE_DEDICATED_ROOM)
+if (ENABLE_ROOM)
     add_subdirectory(citra_room)
 endif()
 

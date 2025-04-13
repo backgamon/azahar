@@ -1,4 +1,6 @@
-// Copyright 2014 Citra Emulator Project
+//FILE MODIFIED BY AzaharPlus APRIL 2025
+
+// Copyright Citra Emulator Project / Azahar Emulator Project
 // Licensed under GPLv2 or any later version
 // Refer to the license.txt file included.
 
@@ -12,6 +14,7 @@
 #include <fmt/ranges.h>
 #include "common/archives.h"
 #include "common/file_util.h"
+#include "common/hacks/hack_manager.h"
 #include "common/logging/log.h"
 #include "common/settings.h"
 #include "common/string_util.h"
@@ -21,6 +24,7 @@
 #include "core/file_sys/errors.h"
 #include "core/file_sys/file_backend.h"
 #include "core/hle/ipc_helpers.h"
+#include "core/hle/kernel/process.h"
 #include "core/hle/result.h"
 #include "core/hle/service/cfg/cfg.h"
 #include "core/hle/service/cfg/cfg_defaults.h"
@@ -38,8 +42,10 @@ namespace Service::CFG {
 
 template <class Archive>
 void Module::serialize(Archive& ar, const unsigned int) {
+    DEBUG_SERIALIZATION_POINT;
     ar & cfg_config_file_buffer;
     ar & cfg_system_save_data_archive;
+    ar & mac_address;
     ar & preferred_region_code;
     ar & preferred_region_chosen;
 }
@@ -82,30 +88,227 @@ static constexpr u16 C(const char code[2]) {
 }
 
 static const std::array<u16, 187> country_codes = {{
-    0,       C("JP"), 0,       0,       0,       0,       0,       0,       // 0-7
-    C("AI"), C("AG"), C("AR"), C("AW"), C("BS"), C("BB"), C("BZ"), C("BO"), // 8-15
-    C("BR"), C("VG"), C("CA"), C("KY"), C("CL"), C("CO"), C("CR"), C("DM"), // 16-23
-    C("DO"), C("EC"), C("SV"), C("GF"), C("GD"), C("GP"), C("GT"), C("GY"), // 24-31
-    C("HT"), C("HN"), C("JM"), C("MQ"), C("MX"), C("MS"), C("AN"), C("NI"), // 32-39
-    C("PA"), C("PY"), C("PE"), C("KN"), C("LC"), C("VC"), C("SR"), C("TT"), // 40-47
-    C("TC"), C("US"), C("UY"), C("VI"), C("VE"), 0,       0,       0,       // 48-55
-    0,       0,       0,       0,       0,       0,       0,       0,       // 56-63
-    C("AL"), C("AU"), C("AT"), C("BE"), C("BA"), C("BW"), C("BG"), C("HR"), // 64-71
-    C("CY"), C("CZ"), C("DK"), C("EE"), C("FI"), C("FR"), C("DE"), C("GR"), // 72-79
-    C("HU"), C("IS"), C("IE"), C("IT"), C("LV"), C("LS"), C("LI"), C("LT"), // 80-87
-    C("LU"), C("MK"), C("MT"), C("ME"), C("MZ"), C("NA"), C("NL"), C("NZ"), // 88-95
-    C("NO"), C("PL"), C("PT"), C("RO"), C("RU"), C("RS"), C("SK"), C("SI"), // 96-103
-    C("ZA"), C("ES"), C("SZ"), C("SE"), C("CH"), C("TR"), C("GB"), C("ZM"), // 104-111
-    C("ZW"), C("AZ"), C("MR"), C("ML"), C("NE"), C("TD"), C("SD"), C("ER"), // 112-119
-    C("DJ"), C("SO"), C("AD"), C("GI"), C("GG"), C("IM"), C("JE"), C("MC"), // 120-127
-    C("TW"), 0,       0,       0,       0,       0,       0,       0,       // 128-135
-    C("KR"), 0,       0,       0,       0,       0,       0,       0,       // 136-143
-    C("HK"), C("MO"), 0,       0,       0,       0,       0,       0,       // 144-151
-    C("ID"), C("SG"), C("TH"), C("PH"), C("MY"), 0,       0,       0,       // 152-159
-    C("CN"), 0,       0,       0,       0,       0,       0,       0,       // 160-167
-    C("AE"), C("IN"), C("EG"), C("OM"), C("QA"), C("KW"), C("SA"), C("SY"), // 168-175
-    C("BH"), C("JO"), 0,       0,       0,       0,       0,       0,       // 176-183
-    C("SM"), C("VA"), C("BM"),                                              // 184-186
+    // 0-7 Japan
+    0,
+    C("JP"),
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+
+    // 8-15 America
+    C("AI"),
+    C("AG"),
+    C("AR"),
+    C("AW"),
+    C("BS"),
+    C("BB"),
+    C("BZ"),
+    C("BO"),
+    // 16-23 America
+    C("BR"),
+    C("VG"),
+    C("CA"),
+    C("KY"),
+    C("CL"),
+    C("CO"),
+    C("CR"),
+    C("DM"),
+    // 24-31 America
+    C("DO"),
+    C("EC"),
+    C("SV"),
+    C("GF"),
+    C("GD"),
+    C("GP"),
+    C("GT"),
+    C("GY"),
+    // 32-39 America
+    C("HT"),
+    C("HN"),
+    C("JM"),
+    C("MQ"),
+    C("MX"),
+    C("MS"),
+    C("AN"),
+    C("NI"),
+    // 40-47 America
+    C("PA"),
+    C("PY"),
+    C("PE"),
+    C("KN"),
+    C("LC"),
+    C("VC"),
+    C("SR"),
+    C("TT"),
+    // 48-55 America
+    C("TC"),
+    C("US"),
+    C("UY"),
+    C("VI"),
+    C("VE"),
+    0,
+    0,
+    0,
+
+    // 56-63 Invalid
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+
+    // 64-71 Europe
+    C("AL"),
+    C("AU"),
+    C("AT"),
+    C("BE"),
+    C("BA"),
+    C("BW"),
+    C("BG"),
+    C("HR"),
+    // 72-79 Europe
+    C("CY"),
+    C("CZ"),
+    C("DK"),
+    C("EE"),
+    C("FI"),
+    C("FR"),
+    C("DE"),
+    C("GR"),
+    // 80-87 Europe
+    C("HU"),
+    C("IS"),
+    C("IE"),
+    C("IT"),
+    C("LV"),
+    C("LS"),
+    C("LI"),
+    C("LT"),
+    // 88-95 Europe
+    C("LU"),
+    C("MK"),
+    C("MT"),
+    C("ME"),
+    C("MZ"),
+    C("NA"),
+    C("NL"),
+    C("NZ"),
+    // 96-103 Europe
+    C("NO"),
+    C("PL"),
+    C("PT"),
+    C("RO"),
+    C("RU"),
+    C("RS"),
+    C("SK"),
+    C("SI"),
+    // 104-111 Europe
+    C("ZA"),
+    C("ES"),
+    C("SZ"),
+    C("SE"),
+    C("CH"),
+    C("TR"),
+    C("GB"),
+    C("ZM"),
+    // 112-119 Europe
+    C("ZW"),
+    C("AZ"),
+    C("MR"),
+    C("ML"),
+    C("NE"),
+    C("TD"),
+    C("SD"),
+    C("ER"),
+    // 120-127 Europe
+    C("DJ"),
+    C("SO"),
+    C("AD"),
+    C("GI"),
+    C("GG"),
+    C("IM"),
+    C("JE"),
+    C("MC"),
+
+    // 128-135 Taiwan
+    C("TW"),
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+
+    // 136-143 Korea
+    C("KR"),
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+
+    // 144-151 China? (Hong Kong & Macao)
+    C("HK"),
+    C("MO"),
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+
+    // 152-159 Southeast Asia
+    C("ID"),
+    C("SG"), // USA
+    C("TH"),
+    C("PH"),
+    C("MY"), // USA
+    0,
+    0,
+    0,
+
+    // 160-167 China
+    C("CN"),
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+
+    // 168-175 Middle East
+    C("AE"), // USA
+    C("IN"), // EUR
+    C("EG"),
+    C("OM"),
+    C("QA"),
+    C("KW"),
+    C("SA"), // USA
+    C("SY"),
+    // 176-183 Middle East
+    C("BH"),
+    C("JO"),
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+
+    // 184-186 European Microstates
+    C("SM"),
+    C("VA"),
+    C("BM"),
 }};
 
 // Based on PKHeX's lists of subregions at
@@ -198,7 +401,14 @@ void Module::Interface::GetCountryCodeID(Kernel::HLERequestContext& ctx) {
     rb.Push<u16>(country_code_id);
 }
 
-u32 Module::GetRegionValue() {
+u32 Module::GetRegionValue(bool from_secure_info) {
+    if (from_secure_info) {
+        auto& sec_info = HW::UniqueData::GetSecureInfoA();
+        if (sec_info.IsValid()) {
+            return sec_info.body.region;
+        }
+    }
+
     if (Settings::values.region_value.GetValue() == Settings::REGION_VALUE_AUTO_SELECT) {
         UpdatePreferredRegionCode();
         return preferred_region_code;
@@ -207,17 +417,45 @@ u32 Module::GetRegionValue() {
     return Settings::values.region_value.GetValue();
 }
 
+bool Module::IsValidRegionCountry(u32 region, u8 country_code) {
+    switch (region) {
+    case 0: // JPN
+        return country_code == 1;
+    case 1: // USA
+        return (country_code >= 8 && country_code <= 52) || country_code == 153 ||
+               country_code == 156 || country_code == 168 || country_code == 174;
+    case 2: // EUR
+    case 3: // AUS
+        return (country_code >= 64 && country_code <= 127) ||
+               (country_code >= 184 && country_code <= 186) || country_code == 169;
+    case 4: // CHN
+        return country_code == 144 || country_code == 145 || country_code == 160;
+    case 5: // KOR
+        return country_code == 136;
+    case 6: // TWN
+        return country_code == 128;
+    default:
+        break;
+    }
+    return false;
+}
+
 void Module::Interface::GetRegion(Kernel::HLERequestContext& ctx) {
     IPC::RequestParser rp(ctx);
 
+    u64 caller_tid = ctx.ClientThread()->owner_process.lock()->codeset->program_id;
+    bool from_secure_info = Common::Hacks::hack_manager.OverrideBooleanSetting(
+        Common::Hacks::HackType::REGION_FROM_SECURE, caller_tid, false);
+
     IPC::RequestBuilder rb = rp.MakeBuilder(2, 0);
     rb.Push(ResultSuccess);
-    rb.Push<u8>(static_cast<u8>(cfg->GetRegionValue()));
+    rb.Push<u8>(static_cast<u8>(cfg->GetRegionValue(from_secure_info)));
 }
 
 void Module::Interface::SecureInfoGetByte101(Kernel::HLERequestContext& ctx) {
     IPC::RequestParser rp(ctx);
 
+#ifdef todotodo
     const auto& secure_info_a = HW::UniqueData::GetSecureInfoA();
     const auto& local_friend_code_seed_b = HW::UniqueData::GetLocalFriendCodeSeedB();
 
@@ -230,12 +468,19 @@ void Module::Interface::SecureInfoGetByte101(Kernel::HLERequestContext& ctx) {
     }
 
     u8 ret = secure_info_a.body.unknown;
+#else
+    u8 ret = 0;
+    if (cfg->secure_info_a_loaded) {
+        ret = cfg->secure_info_a.unknown;
+    }
+#endif
 
     IPC::RequestBuilder rb = rp.MakeBuilder(2, 0);
     rb.Push(ResultSuccess);
     rb.Push<u8>(ret);
 }
 
+#ifdef todotodo
 void Module::Interface::SecureInfoGetSerialNo(Kernel::HLERequestContext& ctx) {
     IPC::RequestParser rp(ctx);
     [[maybe_unused]] u32 out_size = rp.Pop<u32>();
@@ -265,6 +510,32 @@ void Module::Interface::SecureInfoGetSerialNo(Kernel::HLERequestContext& ctx) {
     rb.Push(ResultSuccess);
     rb.PushMappedBuffer(out_buffer);
 }
+#else
+void Module::Interface::SecureInfoGetSerialNo(Kernel::HLERequestContext& ctx) {
+    IPC::RequestParser rp(ctx);
+    [[maybe_unused]] u32 out_size = rp.Pop<u32>();
+    auto out_buffer = rp.PopMappedBuffer();
+
+    if (out_buffer.GetSize() < sizeof(SecureInfoA::serial_number)) {
+        IPC::RequestBuilder rb = rp.MakeBuilder(1, 0);
+        rb.Push(Result(ErrorDescription::InvalidSize, ErrorModule::Config,
+                       ErrorSummary::WrongArgument, ErrorLevel::Permanent));
+    }
+    // Never happens on real hardware, but may happen if user didn't supply a dump.
+    // Always make sure to have available both secure data kinds or error otherwise.
+    if (!cfg->secure_info_a_loaded || !cfg->local_friend_code_seed_b_loaded) {
+        IPC::RequestBuilder rb = rp.MakeBuilder(1, 0);
+        rb.Push(Result(ErrorDescription::NotFound, ErrorModule::Config, ErrorSummary::InvalidState,
+                       ErrorLevel::Permanent));
+    }
+
+    out_buffer.Write(&cfg->secure_info_a.serial_number, 0, sizeof(SecureInfoA::serial_number));
+
+    IPC::RequestBuilder rb = rp.MakeBuilder(1, 2);
+    rb.Push(ResultSuccess);
+    rb.PushMappedBuffer(out_buffer);
+}
+#endif
 
 void Module::Interface::SetUUIDClockSequence(Kernel::HLERequestContext& ctx) {
     IPC::RequestParser rp(ctx);
@@ -317,8 +588,12 @@ void Module::Interface::IsCoppacsSupported(Kernel::HLERequestContext& ctx) {
 
     rb.Push(ResultSuccess);
 
+    u64 caller_tid = ctx.ClientThread()->owner_process.lock()->codeset->program_id;
+    bool from_secure_info = Common::Hacks::hack_manager.OverrideBooleanSetting(
+        Common::Hacks::HackType::REGION_FROM_SECURE, caller_tid, false);
+
     u8 canada_or_usa = 1;
-    if (canada_or_usa == cfg->GetRegionValue()) {
+    if (canada_or_usa == cfg->GetRegionValue(from_secure_info)) {
         rb.Push(true);
     } else {
         rb.Push(false);
@@ -406,6 +681,7 @@ void Module::Interface::UpdateConfigNANDSavegame(Kernel::HLERequestContext& ctx)
     rb.Push(cfg->UpdateConfigNANDSavegame());
 }
 
+#ifdef todotodo
 void Module::Interface::GetLocalFriendCodeSeedData(Kernel::HLERequestContext& ctx) {
     IPC::RequestParser rp(ctx);
     [[maybe_unused]] u32 out_size = rp.Pop<u32>();
@@ -449,6 +725,44 @@ void Module::Interface::GetLocalFriendCodeSeed(Kernel::HLERequestContext& ctx) {
     rb.Push(ResultSuccess);
     rb.Push<u64>(local_friend_code_seed_b.body.friend_code_seed);
 }
+#else
+void Module::Interface::GetLocalFriendCodeSeedData(Kernel::HLERequestContext& ctx) {
+    IPC::RequestParser rp(ctx);
+    [[maybe_unused]] u32 out_size = rp.Pop<u32>();
+    auto out_buffer = rp.PopMappedBuffer();
+    IPC::RequestBuilder rb = rp.MakeBuilder(1, 0);
+
+    if (out_buffer.GetSize() < sizeof(LocalFriendCodeSeedB)) {
+        rb.Push(Result(ErrorDescription::InvalidSize, ErrorModule::Config,
+                       ErrorSummary::WrongArgument, ErrorLevel::Permanent));
+    }
+    // Never happens on real hardware, but may happen if user didn't supply a dump.
+    // Always make sure to have available both secure data kinds or error otherwise.
+    if (!cfg->secure_info_a_loaded || !cfg->local_friend_code_seed_b_loaded) {
+        rb.Push(Result(ErrorDescription::NotFound, ErrorModule::Config, ErrorSummary::InvalidState,
+                       ErrorLevel::Permanent));
+    }
+
+    out_buffer.Write(&cfg->local_friend_code_seed_b, 0, sizeof(LocalFriendCodeSeedB));
+    rb.Push(ResultSuccess);
+}
+
+void Module::Interface::GetLocalFriendCodeSeed(Kernel::HLERequestContext& ctx) {
+    IPC::RequestParser rp(ctx);
+
+    // Never happens on real hardware, but may happen if user didn't supply a dump.
+    // Always make sure to have available both secure data kinds or error otherwise.
+    if (!cfg->secure_info_a_loaded || !cfg->local_friend_code_seed_b_loaded) {
+        IPC::RequestBuilder rb = rp.MakeBuilder(1, 0);
+        rb.Push(Result(ErrorDescription::NotFound, ErrorModule::Config, ErrorSummary::InvalidState,
+                       ErrorLevel::Permanent));
+    }
+
+    IPC::RequestBuilder rb = rp.MakeBuilder(3, 0);
+    rb.Push(ResultSuccess);
+    rb.Push<u64>(cfg->local_friend_code_seed_b.friend_code_seed);
+}
+#endif
 
 void Module::Interface::FormatConfig(Kernel::HLERequestContext& ctx) {
     IPC::RequestParser rp(ctx);
@@ -607,6 +921,8 @@ Result Module::DeleteConfigNANDSaveFile() {
 }
 
 Result Module::UpdateConfigNANDSavegame() {
+    LOG_DEBUG(Service_CFG, "Saving config file to NAND");
+
     FileSys::Mode mode = {};
     mode.write_flag.Assign(1);
     mode.create_flag.Assign(1);
@@ -620,6 +936,14 @@ Result Module::UpdateConfigNANDSavegame() {
     config->Write(0, CONFIG_SAVEFILE_SIZE, true, false, cfg_config_file_buffer.data());
 
     return ResultSuccess;
+}
+
+std::string Module::GetLocalFriendCodeSeedBPath() {
+    return FileUtil::GetUserPath(FileUtil::UserPath::NANDDir) + "rw/sys/LocalFriendCodeSeed_B";
+}
+
+std::string Module::GetSecureInfoAPath() {
+    return FileUtil::GetUserPath(FileUtil::UserPath::NANDDir) + "rw/sys/SecureInfo_A";
 }
 
 Result Module::FormatConfig() {
@@ -659,6 +983,8 @@ Result Module::FormatConfig() {
 }
 
 Result Module::LoadConfigNANDSaveFile() {
+    LOG_DEBUG(Service_CFG, "Loading config file from NAND");
+
     const std::string& nand_directory = FileUtil::GetUserPath(FileUtil::UserPath::NANDDir);
     FileSys::ArchiveFactory_SystemSaveData systemsavedata_factory(nand_directory);
 
@@ -695,6 +1021,55 @@ Result Module::LoadConfigNANDSaveFile() {
     return FormatConfig();
 }
 
+void Module::InvalidateSecureData() {
+    secure_info_a_loaded = local_friend_code_seed_b_loaded = false;
+}
+
+SecureDataLoadStatus Module::LoadSecureInfoAFile() {
+    if (secure_info_a_loaded) {
+        return SecureDataLoadStatus::Loaded;
+    }
+    std::string file_path = GetSecureInfoAPath();
+    if (!FileUtil::Exists(file_path)) {
+        return SecureDataLoadStatus::NotFound;
+    }
+    FileUtil::IOFile file(file_path, "rb");
+    if (!file.IsOpen()) {
+        return SecureDataLoadStatus::IOError;
+    }
+    if (file.GetSize() != sizeof(SecureInfoA)) {
+        return SecureDataLoadStatus::Invalid;
+    }
+    if (file.ReadBytes(&secure_info_a, sizeof(SecureInfoA)) != sizeof(SecureInfoA)) {
+        return SecureDataLoadStatus::IOError;
+    }
+    secure_info_a_loaded = true;
+    return SecureDataLoadStatus::Loaded;
+}
+
+SecureDataLoadStatus Module::LoadLocalFriendCodeSeedBFile() {
+    if (local_friend_code_seed_b_loaded) {
+        return SecureDataLoadStatus::Loaded;
+    }
+    std::string file_path = GetLocalFriendCodeSeedBPath();
+    if (!FileUtil::Exists(file_path)) {
+        return SecureDataLoadStatus::NotFound;
+    }
+    FileUtil::IOFile file(file_path, "rb");
+    if (!file.IsOpen()) {
+        return SecureDataLoadStatus::IOError;
+    }
+    if (file.GetSize() != sizeof(LocalFriendCodeSeedB)) {
+        return SecureDataLoadStatus::Invalid;
+    }
+    if (file.ReadBytes(&local_friend_code_seed_b, sizeof(LocalFriendCodeSeedB)) !=
+        sizeof(LocalFriendCodeSeedB)) {
+        return SecureDataLoadStatus::IOError;
+    }
+    local_friend_code_seed_b_loaded = true;
+    return SecureDataLoadStatus::Loaded;
+}
+
 void Module::LoadMCUConfig() {
     FileUtil::IOFile mcu_data_file(
         fmt::format("{}/mcu.dat", FileUtil::GetUserPath(FileUtil::UserPath::SysDataDir)), "rb");
@@ -722,6 +1097,7 @@ void Module::SaveMCUConfig() {
 Module::Module(Core::System& system_) : system(system_) {
     LoadConfigNANDSaveFile();
     LoadMCUConfig();
+    (void)GetMacAddress();
     // Check the config savegame EULA Version and update it to 0x7F7F if necessary
     // so users will never get a prompt to accept EULA
     auto version = GetEULAVersion();
@@ -732,6 +1108,8 @@ Module::Module(Core::System& system_) : system(system_) {
         SetEULAVersion(default_version);
         UpdateConfigNANDSavegame();
     }
+    LoadSecureInfoAFile();
+    LoadLocalFriendCodeSeedBFile();
 }
 
 Module::~Module() = default;
@@ -769,6 +1147,45 @@ static std::tuple<u32 /*region*/, SystemLanguage> AdjustLanguageInfoBlock(
     // language
     const u32 default_region = region_code[0];
     return {default_region, region_languages[default_region][0]};
+}
+
+std::string& Module::GetMacAddress() {
+    if (!mac_address.empty()) {
+        return mac_address;
+    }
+
+    FileUtil::IOFile mac_address_file(
+        fmt::format("{}/mac.txt", FileUtil::GetUserPath(FileUtil::UserPath::SysDataDir)), "rb");
+    if (!mac_address_file.IsOpen() || mac_address_file.GetSize() > 100) {
+        LOG_INFO(Service_CFG, "Cannot open mac address file for read, generating a new one");
+        mac_address = GenerateRandomMAC();
+        SaveMacAddress();
+        return mac_address;
+    }
+
+    size_t file_size = mac_address_file.GetSize();
+    mac_address.resize(file_size);
+    mac_address_file.ReadBytes(mac_address.data(), file_size);
+    if (mac_address != MacToString(MacToU64(mac_address))) {
+        LOG_WARNING(Service_CFG, "Imvalid saved MAC address, generating a new one");
+        mac_address = GenerateRandomMAC();
+        SaveMacAddress();
+        return mac_address;
+    }
+
+    return mac_address;
+}
+
+void Module::SaveMacAddress() {
+    FileUtil::IOFile mac_address_file(
+        fmt::format("{}/mac.txt", FileUtil::GetUserPath(FileUtil::UserPath::SysDataDir)), "wb");
+
+    if (!mac_address_file.IsOpen()) {
+        LOG_ERROR(Service_CFG, "Cannot open mac address file for write");
+        return;
+    }
+
+    mac_address_file.WriteBytes(mac_address.data(), mac_address.size());
 }
 
 void Module::UpdatePreferredRegionCode() {
@@ -883,8 +1300,13 @@ std::pair<u32, u64> Module::GenerateConsoleUniqueId() const {
     const u32 random_number = rng.GenerateWord32(0, 0xFFFF);
 
     u64_le local_friend_code_seed;
-    rng.GenerateBlock(reinterpret_cast<CryptoPP::byte*>(&local_friend_code_seed),
-                      sizeof(local_friend_code_seed));
+    auto& lfcs = HW::UniqueData::GetLocalFriendCodeSeedB();
+    if (lfcs.IsValid()) {
+        local_friend_code_seed = lfcs.body.friend_code_seed;
+    } else {
+        rng.GenerateBlock(reinterpret_cast<CryptoPP::byte*>(&local_friend_code_seed),
+                          sizeof(local_friend_code_seed));
+    }
 
     const u64 console_id =
         (local_friend_code_seed & 0x3FFFFFFFF) | (static_cast<u64>(random_number) << 48);
@@ -974,6 +1396,61 @@ std::string GetConsoleIdHash(Core::System& system) {
     std::array<u8, CryptoPP::SHA256::DIGESTSIZE> hash;
     CryptoPP::SHA256().CalculateDigest(hash.data(), buffer.data(), sizeof(buffer));
     return fmt::format("{:02x}", fmt::join(hash.begin(), hash.end(), ""));
+}
+
+std::array<u8, 6> MacToArray(const std::string& mac) {
+    std::array<u8, 6> ret;
+    int last = -1;
+    int rc = sscanf(mac.c_str(), "%hhx:%hhx:%hhx:%hhx:%hhx:%hhx%n", ret.data() + 0, ret.data() + 1,
+                    ret.data() + 2, ret.data() + 3, ret.data() + 4, ret.data() + 5, &last);
+    if (rc != 6 || static_cast<int>(mac.size()) != last) {
+        return MacToArray(GenerateRandomMAC());
+    }
+    return ret;
+}
+
+std::string MacToString(u64 mac) {
+    return fmt::format("{:02X}:{:02X}:{:02X}:{:02X}:{:02X}:{:02X}", (mac >> (5 * 8)) & 0xFF,
+                       (mac >> (4 * 8)) & 0xFF, (mac >> (3 * 8)) & 0xFF, (mac >> (2 * 8)) & 0xFF,
+                       (mac >> (1 * 8)) & 0xFF, (mac >> (0 * 8)) & 0xFF);
+}
+
+std::string MacToString(const std::array<u8, 6>& mac) {
+    u64 mac_u64 = u64(mac[0]) << 40 | u64(mac[1]) << 32 | u64(mac[2]) << 24 | u64(mac[3]) << 16 |
+                  u64(mac[4]) << 8 | u64(mac[5]);
+    return MacToString(mac_u64);
+}
+
+u64 MacToU64(const std::string& mac) {
+    auto ret = MacToArray(mac);
+    return u64(ret[0]) << 40 | u64(ret[1]) << 32 | u64(ret[2]) << 24 | u64(ret[3]) << 16 |
+           u64(ret[4]) << 8 | u64(ret[5]);
+}
+
+std::string GenerateRandomMAC() {
+    static const std::array<std::pair<u64, u64>, 16> ranges = {{
+        {0x182A7B000000ULL, 0x182A7BFFFFFFULL},
+        {0x2C10C1000000ULL, 0x2C10C1FFFFFFULL},
+        {0x342FBD000000ULL, 0x342FBDFFFFFFULL},
+        {0x34AF2C000000ULL, 0x34AF2CFFFFFFULL},
+        {0x40D28A000000ULL, 0x40D28AFFFFFFULL},
+        {0x40F407000000ULL, 0x40F407FFFFFFULL},
+        {0x48A5E7000000ULL, 0x48A5E7FFFFFFULL},
+        {0x582F40000000ULL, 0x582F40FFFFFFULL},
+        {0x68BD13000000ULL, 0x68BD13FFFFFFULL},
+        {0x58BDA3000000ULL, 0x58BDA3FFFFFFULL},
+        {0x5C521E000000ULL, 0x5C521EFFFFFFULL},
+        {0x606BFF000000ULL, 0x606BFFFFFFFFULL},
+        {0x64B5C6000000ULL, 0x64B5C6FFFFFFULL},
+        {0x78A2A0000000ULL, 0x78A2A0FFFFFFULL},
+        {0x7CBB8A000000ULL, 0x7CBB8AFFFFFFULL},
+        {0x8CCDE8000000ULL, 0x8CCDE8FFFFFFULL},
+    }};
+    CryptoPP::AutoSeededRandomPool rng;
+    auto& range = ranges[rng.GenerateWord32(0, static_cast<CryptoPP::word32>(ranges.size() - 1))];
+    u64 mac = range.first +
+              rng.GenerateWord32(0, static_cast<CryptoPP::word32>(range.second - range.first));
+    return MacToString(mac);
 }
 
 } // namespace Service::CFG

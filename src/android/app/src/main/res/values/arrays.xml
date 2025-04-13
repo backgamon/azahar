@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- FILE MODIFIED BY AzaharPlus APRIL 2025 -->
 <resources>
 
     <string-array name="systemClockNames" translatable="true">
@@ -233,6 +234,17 @@
         <item>5</item>
     </integer-array>
 
+    <string-array name="textureSamplingNames">
+        <item>@string/game_controlled</item>
+        <item>@string/nearest_neighbor</item>
+        <item>@string/linear</item>
+    </string-array>
+    <integer-array name="textureSamplingValues">
+        <item>0</item>
+        <item>1</item>
+        <item>2</item>
+    </integer-array>
+
     <string-array name="staticThemeNames">
         <item>Blue (Default)</item>
         <item>Cyan</item>
@@ -309,6 +321,7 @@
     </integer-array>
 
     <string-array name="resolutionFactorNames">
+        <item>@string/internal_resolution_setting_auto</item>
         <item>@string/internal_resolution_setting_1x</item>
         <item>@string/internal_resolution_setting_2x</item>
         <item>@string/internal_resolution_setting_3x</item>
@@ -321,6 +334,7 @@
         <item>@string/internal_resolution_setting_10x</item>
     </string-array>
     <integer-array name="resolutionFactorValues">
+        <item>0</item>
         <item>1</item>
         <item>2</item>
         <item>3</item>

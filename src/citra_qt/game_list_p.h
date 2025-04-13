@@ -1,3 +1,5 @@
+//FILE MODIFIED BY AzaharPlus APRIL 2025
+
 // Copyright 2015 Citra Emulator Project
 // Licensed under GPLv2 or any later version
 // Refer to the license.txt file included.
@@ -184,9 +186,11 @@ public:
             if (UISettings::values.game_list_icon_size.GetValue() !=
                 UISettings::GameListIconSize::NoIcon)
                 setData(GetDefaultIcon(large), Qt::DecorationRole);
+/* todotodo
             if (is_encrypted) {
                 setData(QObject::tr("Unsupported encrypted application"), TitleRole);
             }
+*/
             return;
         }
 

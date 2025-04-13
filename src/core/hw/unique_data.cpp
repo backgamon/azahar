@@ -2,8 +2,10 @@
 // Licensed under GPLv2 or any later version
 // Refer to the license.txt file included.
 
+#include <cryptopp/sha.h>
 #include "common/common_paths.h"
 #include "common/logging/log.h"
+#include "core/file_sys/archive_systemsavedata.h"
 #include "core/file_sys/certificate.h"
 #include "core/file_sys/otp.h"
 #include "core/hw/aes/key.h"
@@ -58,6 +60,7 @@ SecureDataLoadStatus LoadSecureInfoA() {
         return SecureDataLoadStatus::IOError;
     }
 
+    HW::AES::InitKeys();
     secure_info_a_signature_valid = secure_info_a.VerifySignature();
     if (!secure_info_a_signature_valid) {
         LOG_WARNING(HW, "SecureInfo_A signature check failed");
@@ -89,6 +92,7 @@ SecureDataLoadStatus LoadLocalFriendCodeSeedB() {
         return SecureDataLoadStatus::IOError;
     }
 
+    HW::AES::InitKeys();
     local_friend_code_seed_b_signature_valid = local_friend_code_seed_b.VerifySignature();
     if (!local_friend_code_seed_b_signature_valid) {
         LOG_WARNING(HW, "LocalFriendCodeSeed_B signature check failed");
@@ -105,6 +109,7 @@ SecureDataLoadStatus LoadOTP() {
 
     const std::string filepath = GetOTPPath();
 
+    HW::AES::InitKeys();
     auto otp_keyiv = HW::AES::GetOTPKeyIV();
 
     auto loader_status = otp.Load(filepath, otp_keyiv.first, otp_keyiv.second);
@@ -154,20 +159,22 @@ SecureDataLoadStatus LoadMovable() {
     if (!file.IsOpen()) {
         return SecureDataLoadStatus::IOError;
     }
-    if (file.GetSize() != sizeof(MovableSedFull)) {
-        if (file.GetSize() == sizeof(MovableSed)) {
-            LOG_WARNING(HW, "Uninitialized movable.sed files are not supported");
-        }
+
+    std::size_t size = file.GetSize();
+    if (size != sizeof(MovableSedFull) && size != sizeof(MovableSed)) {
         return SecureDataLoadStatus::Invalid;
     }
-    if (file.ReadBytes(&movable, sizeof(MovableSedFull)) != sizeof(MovableSedFull)) {
+
+    std::memset(&movable, 0, sizeof(movable));
+    if (file.ReadBytes(&movable, size) != size) {
         movable.Invalidate();
         return SecureDataLoadStatus::IOError;
     }
 
+    HW::AES::InitKeys();
     movable_signature_valid = movable.VerifySignature();
     if (!movable_signature_valid) {
-        LOG_WARNING(HW, "LocalFriendCodeSeed_B signature check failed");
+        LOG_WARNING(HW, "movable.sed signature check failed");
     }
 
     return movable_signature_valid ? SecureDataLoadStatus::Loaded
@@ -224,6 +231,62 @@ void InvalidateSecureData() {
     otp.Invalidate();
     ct_cert.Invalidate();
     movable.Invalidate();
+}
+
+std::unique_ptr<FileUtil::IOFile> OpenUniqueCryptoFile(const std::string& filename,
+                                                       const char openmode[], UniqueCryptoFileID id,
+                                                       int flags) {
+    LoadOTP();
+
+    if (!ct_cert.IsValid() || !otp.Valid()) {
+        return std::make_unique<FileUtil::IOFile>();
+    }
+
+    struct {
+        ECC::PublicKey pkey;
+        u32 device_id;
+        u32 id;
+    } hash_data;
+    hash_data.pkey = ct_cert.GetPublicKeyECC();
+    hash_data.device_id = otp.GetDeviceID();
+    hash_data.id = static_cast<u32>(id);
+
+    CryptoPP::SHA256 hash;
+    u8 digest[CryptoPP::SHA256::DIGESTSIZE];
+    hash.CalculateDigest(digest, reinterpret_cast<CryptoPP::byte*>(&hash_data), sizeof(hash_data));
+
+    std::vector<u8> key(0x10);
+    std::vector<u8> ctr(0x10);
+    memcpy(key.data(), digest, 0x10);
+    memcpy(ctr.data(), digest + 0x10, 12);
+
+    return std::make_unique<FileUtil::CryptoIOFile>(filename, openmode, key, ctr, flags);
+}
+
+bool IsFullConsoleLinked() {
+    return GetOTP().Valid() && GetSecureInfoA().IsValid() && GetLocalFriendCodeSeedB().IsValid();
+}
+
+void UnlinkConsole() {
+    // Remove all console unique data, as well as the act, nim and frd savefiles
+    const std::string system_save_data_path =
+        FileSys::GetSystemSaveDataContainerPath(FileUtil::GetUserPath(FileUtil::UserPath::NANDDir));
+    constexpr std::array<std::array<u8, 8>, 3> save_data_ids{{
+        {0x00, 0x00, 0x00, 0x00, 0x2C, 0x00, 0x01, 0x00},
+        {0x00, 0x00, 0x00, 0x00, 0x32, 0x00, 0x01, 0x00},
+        {0x00, 0x00, 0x00, 0x00, 0x38, 0x00, 0x01, 0x00},
+    }};
+
+    for (auto& id : save_data_ids) {
+        const std::string final_path = FileSys::GetSystemSaveDataPath(system_save_data_path, id);
+        FileUtil::DeleteDirRecursively(final_path, 2);
+    }
+
+    FileUtil::Delete(GetOTPPath());
+    FileUtil::Delete(GetSecureInfoAPath());
+    FileUtil::Delete(GetLocalFriendCodeSeedBPath());
+
+    InvalidateSecureData();
 }
 
 } // namespace HW::UniqueData

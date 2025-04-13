@@ -1,3 +1,5 @@
+//FILE MODIFIED BY AzaharPlus APRIL 2025
+
 // Copyright 2023 Citra Emulator Project
 // Licensed under GPLv2 or any later version
 // Refer to the license.txt file included.
@@ -147,6 +149,11 @@ class SystemFilesFragment : Fragment() {
         outState.putInt(SYS_TYPE, systemTypeDropdown.position)
         outState.putInt(REGION, systemRegionDropdown.position)
         outState.putString(REGION_START, binding.dropdownSystemRegionStart.text.toString())
+    }
+
+    override fun onResume() {
+        super.onResume()
+        SystemSaveGame.load()
     }
 
     override fun onPause() {

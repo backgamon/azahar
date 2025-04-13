@@ -138,6 +138,11 @@ endif()
 # MicroProfile
 add_library(microprofile INTERFACE)
 target_include_directories(microprofile SYSTEM INTERFACE ./microprofile)
+if (ENABLE_MICROPROFILE)
+    target_compile_definitions(microprofile INTERFACE MICROPROFILE_ENABLED=1)
+else()
+    target_compile_definitions(microprofile INTERFACE MICROPROFILE_ENABLED=0)
+endif()
 
 # Nihstro
 add_library(nihstro-headers INTERFACE)
@@ -181,6 +186,7 @@ if(NOT USE_SYSTEM_SOUNDTOUCH)
 endif()
 
 # Teakra
+set(BUILD_TESTING OFF CACHE BOOL "")
 add_subdirectory(teakra EXCLUDE_FROM_ALL)
 
 # SDL2

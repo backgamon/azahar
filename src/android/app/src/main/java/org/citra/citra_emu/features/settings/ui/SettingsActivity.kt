@@ -1,4 +1,4 @@
-// Copyright 2023 Citra Emulator Project
+// Copyright Citra Emulator Project / Azahar Emulator Project
 // Licensed under GPLv2 or any later version
 // Refer to the license.txt file included.
 
@@ -108,6 +108,16 @@ class SettingsActivity : AppCompatActivity(), SettingsActivityView {
         // Critical: If super method is not called, rotations will be busted.
         super.onSaveInstanceState(outState)
         presenter.saveState(outState)
+    }
+
+    override fun onPause() {
+        super.onPause()
+        presenter.onPause()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        presenter.onResume()
     }
 
     override fun onStart() {
@@ -221,8 +231,8 @@ class SettingsActivity : AppCompatActivity(), SettingsActivityView {
 
         // Set default values for system config file
         SystemSaveGame.apply {
-            setUsername("CITRA")
-            setBirthday(3, 25)
+            setUsername("AZAHAR")
+            setBirthday(11, 7)
             setSystemLanguage(1)
             setSoundOutputMode(1)
             setCountryCode(49)

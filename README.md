@@ -1,3 +1,14 @@
+<b>AzaharPlus</b> is a fork of the Azahar 3DS emulator that restores some features.
+
+Each version is the same as the corresponding version of Azahar exept for these features:
+- Support of 3DS files. If a file works with earlier Citra forks, it works with AzaharPlus.
+- Ability to download system files from official servers. No need for an actual 3DS.
+
+Below is the readme from Azahar, unchanged.
+
+The Azahar logo is the property of PabloMK7 and angyartanddraw
+---
+
 ![Azahar Emulator](https://azahar-emu.org/resources/images/logo/azahar-name-and-logo.svg)
 
 ![GitHub Release](https://img.shields.io/github/v/release/azahar-emu/azahar?label=Current%20Release)
@@ -10,19 +21,19 @@ It was created from the merging of PabloMK7's Citra fork and the Lime3DS project
 
 The goal of this project is to be the de-facto platform for future development.
 
-> [!NOTE]
-> Azahar has not fully released yet. For this reason, there are no compiled binaries available for download.
-> 
-> It is recommended that only developers and early adopters should use the emulator until our first stable release.
->
-> Here be dragons.
-
-<!--
 # Installation
 
-### Windows & MacOS
+### Windows
 
 Download the latest release from [Releases](https://github.com/azahar-emu/azahar/releases).
+
+If you are unsure of whether you want to use MSYS2 or MSVC, use MSYS2.
+
+### MacOS
+
+Download the latest release from [Releases](https://github.com/azahar-emu/azahar/releases).
+
+The `macos-universal` download will work on both Intel and Apple Silicon Macs.
 
 ---
 ### Android
@@ -31,7 +42,7 @@ The recommended method of downloading Azahar on Android is via the [Google Play 
 Alternatively, you can install the app using Obtainium:
 1. Download and install Obtainium from [here](https://github.com/ImranR98/Obtainium/releases) (use the file named `app-release.apk`)
 2. Open Obtainium and click 'Add App'
-3. Type `https://github.com/azahar/azahar-emu` into the 'App Source URL' section
+3. Type `https://github.com/azahar-emu/azahar` into the 'App Source URL' section
 4. Click 'Add'
 5. Click 'Install'
 
@@ -44,6 +55,8 @@ Keep in mind that you will not recieve automatic updates when installing via the
 
 Azahar is available as an AppImage on the [Releases](https://github.com/azahar-emu/azahar/releases) page.
 
+A Flatpak distribution is currently being worked on.
+<!--
 We are also on Flathub:
 
 <a href=https://flathub.org/apps/org.azahar-emu.azahar><img width='180' alt='Download on Flathub' src='https://dl.flathub.org/assets/badges/flathub-badge-en.png'/></a>
@@ -84,7 +97,7 @@ Below are the minimum requirements to run Azahar:
 ### Desktop
 ```
 Operating System: Windows 10 (64-bit), MacOS 13 (Ventura), or modern 64-bit Linux
-CPU: x86-64 (64-bit) CPU. Single core performance higher than 1,800 on Passmark
+CPU: x86-64/ARM64 CPU (Windows for ARM not supported). Single core performance higher than 1,800 on Passmark
 GPU: OpenGL 4.3 or Vulkan 1.1 support
 Memory: 2GB of RAM. 4GB is recommended
 ```
@@ -101,8 +114,3 @@ Memory: 2GB of RAM. 4GB is recommended
 We share public roadmaps for upcoming releases in the form of GitHub milestones.
 
 You can find these at https://github.com/azahar-emu/azahar/milestones.
-
-# Join the conversation
-We have a community Discord server where you can chat about the project, keep up to date with the latest announcements, or coordinate emulator development.
-
-[![](https://dcbadge.vercel.app/api/server/4ZjMpAp3M6)](https://discord.gg/4ZjMpAp3M6)

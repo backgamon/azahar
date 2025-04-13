@@ -1,3 +1,5 @@
+//FILE MODIFIED BY AzaharPlus APRIL 2025
+
 // Copyright Citra Emulator Project / Azahar Emulator Project
 // Licensed under GPLv2 or any later version
 // Refer to the license.txt file included.
@@ -90,7 +92,7 @@ public:
          * AC::GetWifiStatus service function
          *  Outputs:
          *      1 : Result of function, 0 on success, otherwise error code
-         *      2 : WifiStatus
+         *      2 : Output connection type, 0 = none, 1 = Old3DS Internet, 2 = New3DS Internet.
          */
         void GetWifiStatus(Kernel::HLERequestContext& ctx);
 
@@ -169,9 +171,14 @@ protected:
     };
     enum class WifiStatus {
         STATUS_DISCONNECTED = 0,
+#ifdef todotodo
         STATUS_CONNECTED_SLOT1 = (1 << 0),
         STATUS_CONNECTED_SLOT2 = (1 << 1),
         STATUS_CONNECTED_SLOT3 = (1 << 2),
+#else
+        STATUS_CONNECTED_O3DS = 1,
+        STATUS_CONNECTED_N3DS = 2,
+#endif
     };
 
     struct ACConfig {

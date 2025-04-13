@@ -41,8 +41,8 @@ if (APPLE)
         set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE BOTH)
         set(CMAKE_FIND_ROOT_PATH_MODE_PACKAGE BOTH)
     else()
-        # Minimum macOS 11
-        set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0")
+        # Minimum macOS 13
+        set(CMAKE_OSX_DEPLOYMENT_TARGET "13.0")
     endif()
 endif()
 
@@ -54,11 +54,26 @@ else()
     set(IS_RELEASE_BUILD ON)
 endif()
 
+if (MSVC)
+    add_compile_options(
+        /wd4711 # Suppresses `function 'xxxxx' selected for automatic inline expansion` messages
+        /wd5045 # Suppresses `Compiler will insert Spectre mitigation for memory load if /Qspectre switch specified` messages
+    )
+endif()
+
 # LTO takes too much memory and time using MSVC.
 if (NOT MSVC AND IS_RELEASE_BUILD)
     set(DEFAULT_ENABLE_LTO ON)
 else()
     set(DEFAULT_ENABLE_LTO OFF)
+endif()
+
+# Disable OpenGL by default on Linux aarch64.
+# Some aarch64 devices running Linux don't support OpenGL, and users may encounter issues.
+if (LINUX AND CMAKE_SYSTEM_PROCESSOR STREQUAL aarch64)
+    set(DEFAULT_ENABLE_OPENGL OFF)
+else()
+    set(DEFAULT_ENABLE_OPENGL ON)
 endif()
 
 option(ENABLE_SDL2 "Enable using SDL2" ON)
@@ -68,10 +83,10 @@ option(USE_SYSTEM_SDL2 "Use the system SDL2 lib (instead of the bundled one)" OF
 # Set bundled qt as dependent options.
 option(ENABLE_QT "Enable the Qt frontend" ON)
 option(ENABLE_QT_TRANSLATION "Enable translations for the Qt frontend" OFF)
-CMAKE_DEPENDENT_OPTION(ENABLE_QT_UPDATER "Enable built-in updater for the Qt frontend" ON "NOT IOS" OFF)
+option(ENABLE_QT_UPDATE_CHECKER "Enable built-in update checker for the Qt frontend" OFF)
 
 CMAKE_DEPENDENT_OPTION(ENABLE_TESTS "Enable generating tests executable" ON "NOT IOS" OFF)
-CMAKE_DEPENDENT_OPTION(ENABLE_DEDICATED_ROOM "Enable generating dedicated room executable" ON "NOT ANDROID AND NOT IOS" OFF)
+CMAKE_DEPENDENT_OPTION(ENABLE_ROOM "Enable generating dedicated room executable" ON "NOT ANDROID AND NOT IOS" OFF)
 
 option(ENABLE_WEB_SERVICE "Enable web services (telemetry, etc.)" ON)
 option(ENABLE_SCRIPTING "Enable RPC server for scripting" ON)
@@ -82,14 +97,17 @@ option(ENABLE_OPENAL "Enables the OpenAL audio backend" ON)
 CMAKE_DEPENDENT_OPTION(ENABLE_LIBUSB "Enable libusb for GameCube Adapter support" ON "NOT IOS" OFF)
 
 CMAKE_DEPENDENT_OPTION(ENABLE_SOFTWARE_RENDERER "Enables the software renderer" ON "NOT ANDROID" OFF)
-CMAKE_DEPENDENT_OPTION(ENABLE_OPENGL "Enables the OpenGL renderer" ON "NOT APPLE AND NOT (LINUX AND CMAKE_SYSTEM_PROCESSOR STREQUAL \"aarch64\")" OFF)
+CMAKE_DEPENDENT_OPTION(ENABLE_OPENGL "Enables the OpenGL renderer" ${DEFAULT_ENABLE_OPENGL} "NOT APPLE" OFF)
 option(ENABLE_VULKAN "Enables the Vulkan renderer" ON)
 
 option(USE_DISCORD_PRESENCE "Enables Discord Rich Presence" OFF)
 
+option(ENABLE_MICROPROFILE "Enables microprofile capabilities" OFF)
+
 # Compile options
 CMAKE_DEPENDENT_OPTION(COMPILE_WITH_DWARF "Add DWARF debugging information" ${IS_DEBUG_BUILD} "MINGW" OFF)
 option(ENABLE_LTO "Enable link time optimization" ${DEFAULT_ENABLE_LTO})
+option(ENABLE_NATIVE_OPTIMIZATION "Enables processor-specific optimizations via -march=native" OFF)
 option(CITRA_USE_PRECOMPILED_HEADERS "Use precompiled headers" ON)
 option(CITRA_WARNINGS_AS_ERRORS "Enable warnings as errors" ON)
 
@@ -144,6 +162,22 @@ if (ENABLE_LTO)
     endif()
 else()
     message(STATUS "LTO disabled")
+endif()
+
+# Check for march=native support
+# =======================================================================
+if (ENABLE_NATIVE_OPTIMIZATION)
+    include(CheckCCompilerFlag)
+    include(CheckCXXCompilerFlag)
+    CHECK_C_COMPILER_FLAG("-march=native" C_COMPILER_SUPPORTS_MARCH_NATIVE)
+    CHECK_CXX_COMPILER_FLAG("-march=native" CXX_COMPILER_SUPPORTS_MARCH_NATIVE)
+
+    if (C_COMPILER_SUPPORTS_MARCH_NATIVE)
+        set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -march=native")
+    endif()
+    if (CXX_COMPILER_SUPPORTS_MARCH_NATIVE)
+        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=native")
+    endif()
 endif()
 
 # Sanity check : Check that all submodules are present
@@ -451,7 +485,7 @@ if (NOT ANDROID AND NOT IOS)
         bundle_target(citra_meta)
     endif()
 
-    if (ENABLE_DEDICATED_ROOM)
+    if (ENABLE_ROOM)
         bundle_target(citra_room)
     endif()
 endif()
@@ -464,22 +498,15 @@ endif()
 # http://standards.freedesktop.org/icon-theme-spec/icon-theme-spec-latest.html
 # http://standards.freedesktop.org/shared-mime-info-spec/shared-mime-info-spec-latest.html
 if(ENABLE_QT AND UNIX AND NOT APPLE)
-    install(FILES "${PROJECT_SOURCE_DIR}/dist/citra-qt.desktop"
-            DESTINATION "${CMAKE_INSTALL_PREFIX}/share/applications")
-    install(FILES "${PROJECT_SOURCE_DIR}/dist/citra.svg"
-            DESTINATION "${CMAKE_INSTALL_PREFIX}/share/icons/hicolor/scalable/apps")
-    install(FILES "${PROJECT_SOURCE_DIR}/dist/citra.xml"
+    install(FILES "${PROJECT_SOURCE_DIR}/dist/azahar.desktop"
+            DESTINATION "${CMAKE_INSTALL_PREFIX}/share/applications"
+            RENAME "org.azahar_emu.Azahar.desktop")
+    install(FILES "${PROJECT_SOURCE_DIR}/dist/azahar.svg"
+            DESTINATION "${CMAKE_INSTALL_PREFIX}/share/icons/hicolor/scalable/apps"
+            RENAME "org.azahar_emu.Azahar.svg")
+    install(FILES "${PROJECT_SOURCE_DIR}/dist/azahar.png"
+            DESTINATION "${CMAKE_INSTALL_PREFIX}/share/icons/hicolor/512x512/apps"
+            RENAME "org.azahar_emu.Azahar.png")
+    install(FILES "${PROJECT_SOURCE_DIR}/dist/org.azahar_emu.Azahar.xml"
             DESTINATION "${CMAKE_INSTALL_PREFIX}/share/mime/packages")
-endif()
-
-if(UNIX)
-    if(ENABLE_SDL2)
-        install(FILES "${PROJECT_SOURCE_DIR}/dist/citra.6"
-                DESTINATION "${CMAKE_INSTALL_PREFIX}/share/man/man6")
-    endif()
-
-    if (ENABLE_QT)
-        install(FILES "${PROJECT_SOURCE_DIR}/dist/citra-qt.6"
-                DESTINATION "${CMAKE_INSTALL_PREFIX}/share/man/man6")
-    endif()
 endif()

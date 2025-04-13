@@ -1,3 +1,5 @@
+//FILE MODIFIED BY AzaharPlus APRIL 2025
+
 // Copyright 2016 Citra Emulator Project
 // Licensed under GPLv2 or any later version
 // Refer to the license.txt file included.
@@ -54,7 +56,8 @@ private:
     std::shared_ptr<Kernel::SharedMemory> framebuffer_memory;
 
     /// Parameter received by the applet on start.
-    ErrEulaParam param{};
+//    ErrEulaParam param{};
+    std::vector<u8> startup_param;
 };
 
 } // namespace HLE::Applets

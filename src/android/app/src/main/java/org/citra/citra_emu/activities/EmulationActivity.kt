@@ -1,4 +1,4 @@
-// Copyright Citra Emulator Project / Lime3DS Emulator Project
+// Copyright Citra Emulator Project / Azahar Emulator Project
 // Licensed under GPLv2 or any later version
 // Refer to the license.txt file included.
 
@@ -73,8 +73,6 @@ class EmulationActivity : AppCompatActivity() {
 
         super.onCreate(savedInstanceState)
 
-        NativeLibrary.enableAdrenoTurboMode(BooleanSetting.ADRENO_GPU_BOOST.boolean)
-
         binding = ActivityEmulationBinding.inflate(layoutInflater)
         screenAdjustmentUtil = ScreenAdjustmentUtil(this, windowManager, settingsViewModel.settings)
         hotkeyUtility = HotkeyUtility(screenAdjustmentUtil, this)
@@ -140,7 +138,6 @@ class EmulationActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
-        NativeLibrary.enableAdrenoTurboMode(false)
         EmulationLifecycleUtil.clear()
         isEmulationRunning = false
         instance = null
@@ -195,9 +192,16 @@ class EmulationActivity : AppCompatActivity() {
     }
 
     private fun enableFullscreenImmersive() {
-        // TODO: Remove this once we properly account for display insets in the input overlay
-        window.attributes.layoutInDisplayCutoutMode =
-            WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_NEVER
+        val attributes = window.attributes
+
+        attributes.layoutInDisplayCutoutMode =
+            if (BooleanSetting.EXPAND_TO_CUTOUT_AREA.boolean) {
+                WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+            } else {
+                WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_NEVER
+            }
+
+        window.attributes = attributes
 
         WindowCompat.setDecorFitsSystemWindows(window, false)
 

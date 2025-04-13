@@ -276,7 +276,7 @@
            <number>0</number>
           </property>
           <property name="maximum">
-           <number>100</number>
+           <number>255</number>
           </property>
           <property name="value">
            <number>0</number>
@@ -284,6 +284,13 @@
          </widget>
         </item>
        </layout>
+      </item>
+      <item>
+       <widget class="QLabel" name="excessive_depth_warning_label">
+        <property name="text">
+         <string>Note: Depth values over 100% are not possible on real hardware and may cause graphical issues</string>
+        </property>
+       </widget>
       </item>
       <item>
        <layout class="QHBoxLayout" name="horizontalLayout_6">
@@ -316,7 +323,7 @@
             <string>Disable Right Eye Rendering</string>
           </property>
           <property name="toolTip">
-            <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Disable Right Eye Rendering&lt;/p&gt;&lt;p&gt;Disables rendering the right eye image when not using stereoscopic mode. Greatly improves performance in some games, but can cause flickering in others.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
+            <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Disable Right Eye Rendering&lt;/p&gt;&lt;p&gt;Disables rendering the right eye image when not using stereoscopic mode. Greatly improves performance in some applications, but can cause flickering in others.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
           </property>
         </widget>
       </item>
@@ -352,7 +359,7 @@
       <item row="1" column="1">
        <widget class="QCheckBox" name="toggle_preload_textures">
         <property name="toolTip">
-         <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Load all custom textures into memory on boot, instead of loading them when the game requires them.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
+         <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Load all custom textures into memory on boot, instead of loading them when the application requires them.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
         </property>
         <property name="text">
          <string>Preload Custom Textures</string>

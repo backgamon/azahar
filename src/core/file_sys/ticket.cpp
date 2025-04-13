@@ -1,3 +1,5 @@
+//FILE MODIFIED BY AzaharPlus APRIL 2025
+
 // Copyright Citra Emulator Project / Azahar Emulator Project
 // Licensed under GPLv2 or any later version
 // Refer to the license.txt file included.
@@ -64,7 +66,9 @@ Loader::ResultStatus Ticket::DoTitlekeyFixup() {
 
 Loader::ResultStatus Ticket::Load(std::span<const u8> file_data, std::size_t offset) {
     std::size_t total_size = static_cast<std::size_t>(file_data.size() - offset);
+/* todotodo
     serialized_size = total_size;
+*/
     if (total_size < sizeof(u32))
         return Loader::ResultStatus::Error;
 
@@ -88,6 +92,7 @@ Loader::ResultStatus Ticket::Load(std::span<const u8> file_data, std::size_t off
     std::memcpy(ticket_signature.data(), &file_data[offset + sizeof(u32)], signature_size);
     std::memcpy(&ticket_body, &file_data[offset + body_start], sizeof(Body));
 
+/* todotodo
     std::size_t content_index_start = body_end;
     if (total_size < content_index_start + (2 * sizeof(u32)))
         return Loader::ResultStatus::Error;
@@ -102,6 +107,8 @@ Loader::ResultStatus Ticket::Load(std::span<const u8> file_data, std::size_t off
         return Loader::ResultStatus::Error;
     content_index.resize(content_index_size);
     std::memcpy(content_index.data(), &file_data[offset + content_index_start], content_index_size);
+
+*/
 
     return Loader::ResultStatus::Success;
 }
@@ -165,6 +172,21 @@ std::optional<std::array<u8, 16>> Ticket::GetTitleKey() const {
     CryptoPP::CBC_Mode<CryptoPP::AES>::Decryption{key.data(), key.size(), ctr.data()}.ProcessData(
         title_key.data(), title_key.data(), title_key.size());
     return title_key;
+}
+
+bool Ticket::IsPersonal() {
+    if (ticket_body.console_id == 0u) {
+        // Common ticket
+        return false;
+    }
+
+    auto& otp = HW::UniqueData::GetOTP();
+    if (!otp.Valid()) {
+        LOG_ERROR(HW_AES, "Invalid OTP");
+        return false;
+    }
+
+    return ticket_body.console_id == otp.GetDeviceID();
 }
 
 } // namespace FileSys

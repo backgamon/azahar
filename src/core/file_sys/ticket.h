@@ -1,4 +1,6 @@
-// Copyright 2018 Citra Emulator Project
+//FILE MODIFIED BY AzaharPlus APRIL 2025
+
+// Copyright Citra Emulator Project / Azahar Emulator Project
 // Licensed under GPLv2 or any later version
 // Refer to the license.txt file included.
 
@@ -43,8 +45,9 @@ public:
         u8 audit;
         INSERT_PADDING_BYTES(0x42);
         std::array<u8, 0x40> limits;
+        std::array<u8, 0xAC> content_index;
     };
-    static_assert(sizeof(Body) == 0x164, "Ticket body structure size is wrong");
+    static_assert(sizeof(Body) == 0x210, "Ticket body structure size is wrong");
 #pragma pack(pop)
 
     Loader::ResultStatus DoTitlekeyFixup();
@@ -66,6 +69,8 @@ public:
     size_t GetSerializedSize() {
         return serialized_size;
     }
+
+    bool IsPersonal();
 
 private:
     Body ticket_body;
