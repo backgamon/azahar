@@ -51,7 +51,6 @@ enum class PortraitLayoutOption : u32 {
     // formerly mobile portrait
     PortraitTopFullWidth,
     PortraitCustomLayout,
-    PortraitOriginal
 };
 
 /** Defines where the small screen will appear relative to the large screen
