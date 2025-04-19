@@ -1,7 +1,6 @@
 #!/bin/bash -ex
 
-mkdir build
-cd build
+mkdir build && cd build
 cmake .. -GNinja \
     -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_SYSTEM_NAME=iOS \
