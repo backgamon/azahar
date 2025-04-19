@@ -51,6 +51,7 @@ enum class PortraitLayoutOption : u32 {
     // formerly mobile portrait
     PortraitTopFullWidth,
     PortraitCustomLayout,
+    PortraitOriginal
 };
 
 /** Defines where the small screen will appear relative to the large screen
@@ -420,6 +421,8 @@ struct InputProfile {
     std::array<std::string, NativeAnalog::NumAnalogs> analogs;
     std::string motion_device;
     std::string touch_device;
+    std::string controller_touch_device;
+    bool use_touchpad;
     bool use_touch_from_button;
     int touch_from_button_map_index;
     std::string udp_input_address;
@@ -497,6 +500,7 @@ struct Values {
     Setting<bool> use_shader_jit{true, "use_shader_jit"};
     SwitchableSetting<u32, true> resolution_factor{1, 0, 10, "resolution_factor"};
     SwitchableSetting<double, true> frame_limit{100, 0, 1000, "frame_limit"};
+    SwitchableSetting<int, true> turbo_speed{200, 0, 1000, "turbo_speed"};
     SwitchableSetting<TextureFilter> texture_filter{TextureFilter::NoFilter, "texture_filter"};
     SwitchableSetting<TextureSampling> texture_sampling{TextureSampling::GameControlled,
                                                         "texture_sampling"};
