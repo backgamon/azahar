@@ -22,11 +22,12 @@ constexpr TextureUnit PicaTexture(int unit) {
     return TextureUnit{unit};
 }
 
+constexpr TextureUnit TextureCube{6};
 constexpr TextureUnit TextureBufferLUT_LF{3};
 constexpr TextureUnit TextureBufferLUT_RG{4};
 constexpr TextureUnit TextureBufferLUT_RGBA{5};
-constexpr TextureUnit TextureNormalMap{6};
-constexpr TextureUnit TextureColorBuffer{7};
+constexpr TextureUnit TextureNormalMap{7};
+constexpr TextureUnit TextureColorBuffer{10};
 
 } // namespace TextureUnits
 
@@ -99,6 +100,10 @@ public:
     };
     std::array<TextureUnit, 3> texture_units;
 
+struct {
+        GLuint texture_cube; // GL_TEXTURE_BINDING_CUBE_MAP
+        GLuint sampler;      // GL_SAMPLER_BINDING
+    } texture_cube_unit;
     struct {
         GLuint texture_buffer; // GL_TEXTURE_BINDING_BUFFER
     } texture_buffer_lut_lf;
