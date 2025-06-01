@@ -1,3 +1,5 @@
+//FILE MODIFIED BY AzaharPlus APRIL 2025
+
 // Copyright Citra Emulator Project / Azahar Emulator Project
 // Licensed under GPLv2 or any later version
 // Refer to the license.txt file included.
@@ -152,7 +154,7 @@ private:
     friend class CIAFile;
     std::unique_ptr<FileUtil::IOFile> file;
     bool is_error = false;
-//    bool is_not_ncch = false;
+    bool is_not_ncch = false;
     bool decryption_authorized = false;
 
     std::size_t written = 0;
@@ -207,8 +209,11 @@ public:
     ResultVal<std::size_t> Write(u64 offset, std::size_t length, bool flush, bool update_timestamp,
                                  const u8* buffer) override;
 
+    Result PrepareToImportContent(const FileSys::TitleMetadata& tmd);
     Result ProvideTicket(const FileSys::Ticket& ticket);
+    Result ProvideTMDForAdditionalContent(const FileSys::TitleMetadata& tmd);
     const FileSys::TitleMetadata& GetTMD();
+    FileSys::Ticket& GetTicket();
     CIAInstallState GetCiaInstallState() {
         return install_state;
     }
@@ -234,6 +239,7 @@ private:
     bool decryption_authorized;
     bool is_done = false;
     bool is_closed = false;
+    bool is_additional_content = false;
 
     // Whether it's installing an update, and what step of installation it is at
     bool is_update = false;
@@ -260,11 +266,13 @@ class CurrentImportingTitle {
 public:
     explicit CurrentImportingTitle(Core::System& system_, u64 title_id_,
                                    Service::FS::MediaType media_type_)
-        : cia_file(system_, media_type_, true), title_id(title_id_), media_type(media_type_) {}
+        : cia_file(system_, media_type_, true), title_id(title_id_), media_type(media_type_),
+          tmd_provided(false) {}
 
     CIAFile cia_file;
     u64 title_id;
     Service::FS::MediaType media_type;
+    bool tmd_provided;
 };
 
 // A file handled returned for Tickets to be written into and subsequently installed.
@@ -1038,6 +1046,16 @@ public:
         void GetNumTicketsOfProgram(Kernel::HLERequestContext& ctx);
 
         void ListTicketInfos(Kernel::HLERequestContext& ctx);
+
+        void GetNumCurrentContentInfos(Kernel::HLERequestContext& ctx);
+
+        void FindCurrentContentInfos(Kernel::HLERequestContext& ctx);
+
+        void ListCurrentContentInfos(Kernel::HLERequestContext& ctx);
+
+        void CalculateContextRequiredSize(Kernel::HLERequestContext& ctx);
+
+        void UpdateImportContentContexts(Kernel::HLERequestContext& ctx);
 
         void ExportTicketWrapped(Kernel::HLERequestContext& ctx);
 

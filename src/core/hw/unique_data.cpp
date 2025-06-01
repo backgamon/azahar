@@ -1,3 +1,5 @@
+//FILE MODIFIED BY AzaharPlus APRIL 2025
+
 // Copyright Citra Emulator Project / Azahar Emulator Project
 // Licensed under GPLv2 or any later version
 // Refer to the license.txt file included.
@@ -7,12 +9,17 @@
 #include "common/logging/log.h"
 #include "core/file_sys/archive_systemsavedata.h"
 #include "core/file_sys/certificate.h"
+#include "core/file_sys/ncch_container.h"
 #include "core/file_sys/otp.h"
 #include "core/hw/aes/key.h"
 #include "core/hw/ecc.h"
 #include "core/hw/rsa/rsa.h"
 #include "core/hw/unique_data.h"
 #include "core/loader/loader.h"
+#include <map>
+#include <sstream>
+#include <boost/iostreams/device/file_descriptor.hpp>
+#include <boost/iostreams/stream.hpp>
 
 namespace HW::UniqueData {
 
@@ -26,16 +33,19 @@ static MovableSedFull movable;
 static bool movable_signature_valid = false;
 
 bool SecureInfoA::VerifySignature() const {
+	return true;
     return HW::RSA::GetSecureInfoSlot().Verify(
         std::span<const u8>(reinterpret_cast<const u8*>(&body), sizeof(body)), signature);
 }
 
 bool LocalFriendCodeSeedB::VerifySignature() const {
+	return true;
     return HW::RSA::GetLocalFriendCodeSeedSlot().Verify(
         std::span<const u8>(reinterpret_cast<const u8*>(&body), sizeof(body)), signature);
 }
 
 bool MovableSed::VerifySignature() const {
+	return true;
     return lfcs.VerifySignature();
 }
 
@@ -226,41 +236,208 @@ MovableSedFull& GetMovableSed() {
     return movable;
 }
 void InvalidateSecureData() {
-    secure_info_a.Invalidate();
+/*    secure_info_a.Invalidate();
     local_friend_code_seed_b.Invalidate();
     otp.Invalidate();
     ct_cert.Invalidate();
-    movable.Invalidate();
+    movable.Invalidate();*/
+}
+
+static std::string binToHex(u8 bin[])
+{
+	std::string res = "";
+	
+	for(int i=0; i<32; i++)
+	{
+		std::string s = fmt::format("{:02x}", bin[i]);
+		res += s;
+	}
+	
+	return res;
+}
+
+static std::array<u8, 32> hexToBin(const std::string& hex) {
+    std::array<u8, 32> bytes;
+
+    for (unsigned int i = 0; i < hex.length(); i += 2) {
+        std::string byteString = hex.substr(i, 2);
+        bytes[i/2] = static_cast<u8>(std::strtol(byteString.c_str(), nullptr, 16));
+    }
+	
+    return bytes;
+}
+
+static bool isHeaderReadable(NCCH_Header ncch_header)
+{
+	bool ret = true;
+	
+	if (Loader::MakeMagic('N', 'C', 'S', 'D') != ncch_header.magic
+	&&  Loader::MakeMagic('N', 'C', 'C', 'H') != ncch_header.magic
+	&&  memcmp("NDHT", ncch_header.signature, 4) != 0
+	&&  memcmp("dlplay", ncch_header.signature, 6) != 0
+	&&  memcmp("NARC", ncch_header.signature + 128, 4) != 0
+	&&  memcmp("DS INTERNET", ncch_header.signature, 11) != 0)
+	{
+		ret = false;
+	}
+	
+	return ret;
+}
+
+static bool testDigest(std::string sdigest, const std::string& filename)
+{
+	u8 digest[CryptoPP::SHA256::DIGESTSIZE];
+	memcpy(digest, hexToBin(sdigest).data(), 32);
+
+	std::vector<u8> key(0x10);
+    std::vector<u8> ctr(0x10);
+    memcpy(key.data(), digest, 0x10);
+    memcpy(ctr.data(), digest + 0x10, 12);
+
+    FileUtil::CryptoIOFile file(filename, "rb", key, ctr, 0);
+	
+	if (!file.IsOpen()) {
+		return false;
+	}
+
+	NCCH_Header ncch_header;
+	
+	if (file.ReadBytes(&ncch_header, sizeof(NCCH_Header)) != sizeof(NCCH_Header)) {
+		return false;
+	}
+
+	return isHeaderReadable(ncch_header);
+}
+
+static void toLower(std::string &str)
+{
+	for(size_t i=0; i<str.length(); i++)
+	{
+		str[i] = (char)std::tolower(str[i]);
+	}
+}
+
+static void saveDigest(std::string digest)
+{
+	// ADD digest at the end of the file
+	LOG_ERROR(HW, "saveDigest");
+	
+    const std::string path{
+        fmt::format("{}/digests.txt", FileUtil::GetUserPath(FileUtil::UserPath::SysDataDir))};
+		
+    if (!FileUtil::CreateFullPath(path)) {
+        LOG_ERROR(Service_FS, "Failed to create digests.txt");
+        return;
+    }
+	
+    FileUtil::IOFile file{path, "a"};
+    if (!file.IsOpen()) {
+        LOG_ERROR(Service_FS, "Failed to open digests.txt");
+        return;
+    }
+	
+	file.WriteBytes("\n", 1);
+	
+	if (file.WriteBytes(digest.c_str(), digest.length()) != digest.length()) {
+        LOG_ERROR(Service_FS, "Failed to write digest fully");
+    }
+	
+	file.WriteBytes("\n", 1);
+}
+
+static void loadDigests(std::map<std::string, int> &digests)
+{
+    const std::string filepath = FileUtil::GetUserPath(FileUtil::UserPath::SysDataDir) + "digests.txt";
+    FileUtil::CreateFullPath(filepath);
+
+    boost::iostreams::stream<boost::iostreams::file_descriptor_source> file;
+    FileUtil::OpenFStream<std::ios_base::in>(file, filepath);
+	
+    if (file.is_open())
+	{
+		while (!file.eof())
+		{
+			std::string line;
+			std::getline(file, line);
+			
+			if(line.ends_with("\r"))
+			{
+				line.pop_back();
+			}
+			
+			toLower(line);
+
+			if (line.length() == 64 && !line.starts_with("#"))
+			{
+				digests[line] = 1;
+			}
+		}
+	}
+	
+	LoadOTP();
+	
+	if (ct_cert.IsValid() && otp.Valid()) {
+		struct {
+			ECC::PublicKey pkey;
+			u32 device_id;
+			u32 id;
+		} hash_data;
+		hash_data.pkey = ct_cert.GetPublicKeyECC();
+		hash_data.device_id = otp.GetDeviceID();
+		hash_data.id = static_cast<u32>(UniqueCryptoFileID::NCCH);
+
+		u8 digest[CryptoPP::SHA256::DIGESTSIZE];
+		CryptoPP::SHA256 hash;
+		hash.CalculateDigest(digest, reinterpret_cast<CryptoPP::byte*>(&hash_data), sizeof(hash_data));
+
+		std::string sdigest = binToHex(digest);
+
+		if(digests[sdigest] == 0)
+		{
+			saveDigest(sdigest);
+		}
+    }
+}
+
+static std::string findDigest(std::string filename)
+{
+	std::string ret;
+	std::map<std::string, int> digests;
+	
+	loadDigests(digests);
+	
+	for(auto it=digests.begin(); it!=digests.end(); it++)
+	{
+		if(testDigest(it->first, filename))
+		{
+			ret = it->first;
+		}
+	}
+	
+	return ret;
 }
 
 std::unique_ptr<FileUtil::IOFile> OpenUniqueCryptoFile(const std::string& filename,
                                                        const char openmode[], UniqueCryptoFileID id,
                                                        int flags) {
-    LoadOTP();
+	std::string sdigest = findDigest(filename);
 
-    if (!ct_cert.IsValid() || !otp.Valid()) {
-        return std::make_unique<FileUtil::IOFile>();
-    }
+	if(sdigest.length() == 64)
+	{
+		u8 digest[CryptoPP::SHA256::DIGESTSIZE];
+		memcpy(digest, hexToBin(sdigest).data(), 32);
+		
+		std::vector<u8> key(0x10);
+		std::vector<u8> ctr(0x10);
+		memcpy(key.data(), digest, 0x10);
+		memcpy(ctr.data(), digest + 0x10, 12);
 
-    struct {
-        ECC::PublicKey pkey;
-        u32 device_id;
-        u32 id;
-    } hash_data;
-    hash_data.pkey = ct_cert.GetPublicKeyECC();
-    hash_data.device_id = otp.GetDeviceID();
-    hash_data.id = static_cast<u32>(id);
+//		LOG_ERROR(HW, "digest dump {}", binToHex(digest));
 
-    CryptoPP::SHA256 hash;
-    u8 digest[CryptoPP::SHA256::DIGESTSIZE];
-    hash.CalculateDigest(digest, reinterpret_cast<CryptoPP::byte*>(&hash_data), sizeof(hash_data));
-
-    std::vector<u8> key(0x10);
-    std::vector<u8> ctr(0x10);
-    memcpy(key.data(), digest, 0x10);
-    memcpy(ctr.data(), digest + 0x10, 12);
-
-    return std::make_unique<FileUtil::CryptoIOFile>(filename, openmode, key, ctr, flags);
+		return std::make_unique<FileUtil::CryptoIOFile>(filename, openmode, key, ctr, flags);
+	}
+	
+	return std::make_unique<FileUtil::IOFile>();
 }
 
 bool IsFullConsoleLinked() {
@@ -268,7 +445,7 @@ bool IsFullConsoleLinked() {
 }
 
 void UnlinkConsole() {
-    // Remove all console unique data, as well as the act, nim and frd savefiles
+/*    // Remove all console unique data, as well as the act, nim and frd savefiles
     const std::string system_save_data_path =
         FileSys::GetSystemSaveDataContainerPath(FileUtil::GetUserPath(FileUtil::UserPath::NANDDir));
     constexpr std::array<std::array<u8, 8>, 3> save_data_ids{{
@@ -286,7 +463,159 @@ void UnlinkConsole() {
     FileUtil::Delete(GetSecureInfoAPath());
     FileUtil::Delete(GetLocalFriendCodeSeedBPath());
 
-    InvalidateSecureData();
+    InvalidateSecureData();*/
+}
+
+
+static bool isAppEncrypted(const std::string& path)
+{
+    FileUtil::IOFile file(path, "rb");
+	
+	if (!file.IsOpen()) {
+		return false;
+	}
+
+	NCCH_Header ncch_header;
+	
+	if (file.ReadBytes(&ncch_header, sizeof(NCCH_Header)) != sizeof(NCCH_Header)) {
+		return false;
+	}
+	
+	return !isHeaderReadable(ncch_header);
+}
+
+std::vector<std::string> GetAppFilepaths()
+{
+	std::vector<std::string> ret;
+	
+    FileUtil::FSTEntry data_dir;
+    std::vector<FileUtil::FSTEntry> files;
+    FileUtil::ScanDirectoryTree(FileUtil::GetUserPath(FileUtil::UserPath::UserDir), data_dir, 2048);
+    FileUtil::GetAllFilesFromNestedEntries(data_dir, files);
+	
+	for(size_t i=0; i<files.size(); i++)
+	{
+		std::string file = files[i].physicalName;
+		
+		if(file.ends_with(".app")
+		&& isAppEncrypted(file))
+		{
+			ret.push_back(file);
+		}
+	}
+	
+	return ret;
+}
+
+int RevertEncryptionRemoval()
+{
+	int res = 0;
+	
+    FileUtil::FSTEntry data_dir;
+    std::vector<FileUtil::FSTEntry> files;
+    FileUtil::ScanDirectoryTree(FileUtil::GetUserPath(FileUtil::UserPath::UserDir), data_dir, 2048);
+    FileUtil::GetAllFilesFromNestedEntries(data_dir, files);
+	
+	for(size_t i=0; i<files.size(); i++)
+	{
+		std::string file = files[i].physicalName;
+		
+		if(file.ends_with(".app.encrypted"))
+		{
+			std::string shortName = file.substr(0, file.length() - std::string(".encrypted").length());
+			
+			if(FileUtil::Exists(shortName))
+			{
+				std::string sdigest = findDigest(file);
+				
+				if(sdigest.length() == 64)
+				{
+					FileUtil::Rename(shortName, shortName + ".decrypted");
+					FileUtil::Rename(file, shortName);
+					res ++;
+				}
+			}
+		}
+		else if(file.ends_with(".app.decrypted"))
+		{
+			std::string shortName = file.substr(0, file.length() - std::string(".decrypted").length());
+			
+			if(!FileUtil::Exists(shortName))
+			{
+				FileUtil::Rename(file, shortName);
+			}
+		}
+	}
+	
+	return res;
+}
+
+int RemoveAzaharEncryption(const std::string& path)
+{
+	int ret = 0;
+	LOG_ERROR(HW, "RemoveAzaharEncryption {}", path);
+	
+	if(FileUtil::Exists(path + ".decrypted"))
+	{
+		FileUtil::Rename(path, path + ".encrypted");
+		FileUtil::Rename(path + ".decrypted", path);
+		
+		return 0;
+	}
+	
+	std::string sdigest = findDigest(path);
+	
+	if(sdigest.length() == 64)
+	{
+		u8 digest[CryptoPP::SHA256::DIGESTSIZE];
+		memcpy(digest, hexToBin(sdigest).data(), 32);
+		
+		std::vector<u8> key(0x10);
+		std::vector<u8> ctr(0x10);
+		memcpy(key.data(), digest, 0x10);
+		memcpy(ctr.data(), digest + 0x10, 12);
+
+//		LOG_ERROR(HW, "digest dump {}", binToHex(digest));
+
+		FileUtil::CryptoIOFile cfile(path, "rb", key, ctr, 0);
+		FileUtil::Delete(path + ".decrypting");
+		FileUtil::IOFile dfile(path + ".decrypting", "wb");
+		char* buffer = new char[1000000];
+		int tocopy = (int)cfile.ReadBytes(buffer, 1000000);
+		int written = 0;
+		
+		while(tocopy > 0)
+		{
+			written = (int)dfile.WriteBytes(buffer, tocopy);
+			
+			if(written != tocopy)
+			{
+				ret = 1;
+				LOG_ERROR(HW, "copy error {}", path);
+				break;
+			}
+			
+			tocopy = (int)cfile.ReadBytes(buffer, 1000000);
+		}
+		
+		cfile.Close();
+		dfile.Close();
+		delete[] buffer;
+		
+		if(ret == 0)
+		{
+			FileUtil::Rename(path + ".decrypting", path + ".decrypted");
+			FileUtil::Rename(path, path + ".encrypted");
+			FileUtil::Rename(path + ".decrypted", path);
+		}
+	}
+	else
+	{
+		ret = 2;
+		LOG_ERROR(HW, "no digest found {}", path);
+	}
+	
+	return ret;
 }
 
 } // namespace HW::UniqueData

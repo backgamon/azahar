@@ -1,9 +1,12 @@
+//FILE MODIFIED BY AzaharPlus APRIL 2025
+
 // Copyright Citra Emulator Project / Azahar Emulator Project
 // Licensed under GPLv2 or any later version
 // Refer to the license.txt file included.
 
 // Copyright Dolphin Emulator Project
 // Licensed under GPLv2 or any later version
+// Refer to the license.txt file included.
 
 #pragma once
 

@@ -1,3 +1,5 @@
+//FILE MODIFIED BY AzaharPlus APRIL 2025
+
 // Copyright Citra Emulator Project / Azahar Emulator Project
 // Licensed under GPLv2 or any later version
 // Refer to the license.txt file included.
@@ -70,7 +72,7 @@ HackManager hack_manager = {
                  },
          }},
 
-#ifdef todotodo
+//#ifdef todotodo
         {HackType::ONLINE_LLE_REQUIRED,
          HackEntry{
              .mode = HackAllowMode::FORCE,
@@ -90,7 +92,7 @@ HackManager hack_manager = {
                      0x0004001000026000, // CHN
                      0x0004001000027000, // KOR
                      0x0004001000028000, // TWN
-
+/*
                      // Nintendo Network ID Settings
                      0x000400100002BF00, // JPN
                      0x000400100002C000, // USA
@@ -106,10 +108,11 @@ HackManager hack_manager = {
 
                      // Pretendo Network's Nimbus
                      0x000400000D40D200,
+*/
                  },
          }},
-#endif
-
+//
+#ifdef todotodo
         {HackType::REGION_FROM_SECURE,
          HackEntry{
              .mode = HackAllowMode::FORCE,
@@ -157,6 +160,8 @@ HackManager hack_manager = {
                      0x0004013020003203, // New 3DS safe mode
                  },
          }},
+//
+#endif
 
     }};
 }

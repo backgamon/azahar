@@ -1,3 +1,5 @@
+//FILE MODIFIED BY AzaharPlus APRIL 2025
+
 // Copyright Citra Emulator Project / Azahar Emulator Project
 // Licensed under GPLv2 or any later version
 // Refer to the license.txt file included.
@@ -185,6 +187,11 @@ object NativeLibrary {
     external fun isFullConsoleLinked(): Boolean
 
     external fun unlinkConsole()
+
+    external fun setTemporaryFrameLimit(speed: Double)
+
+    external fun disableTemporaryFrameLimit()
+
 
     external fun downloadTitleFromNus(title: Long): InstallStatus
 
@@ -775,6 +782,7 @@ object NativeLibrary {
         const val BUTTON_DEBUG = 781
         const val BUTTON_GPIO14 = 782
         const val BUTTON_SWAP = 800
+        const val BUTTON_TURBO = 801
     }
 
     /**

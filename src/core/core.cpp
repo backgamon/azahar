@@ -394,7 +394,7 @@ System::ResultStatus System::Load(Frontend::EmuWindow& emu_window, const std::st
     }
 
     cheat_engine.LoadCheatFile(title_id);
-    cheat_engine.Connect();
+    cheat_engine.Connect(process->process_id);
 
     perf_stats = std::make_unique<PerfStats>(title_id);
 
@@ -503,7 +503,9 @@ System::ResultStatus System::Init(Frontend::EmuWindow& emu_window,
     dsp_core->EnableStretching(Settings::values.enable_audio_stretching.GetValue());
 
 #ifdef ENABLE_SCRIPTING
-    rpc_server = std::make_unique<RPC::Server>(*this);
+    if (Settings::values.enable_rpc_server.GetValue()) {
+        rpc_server = std::make_unique<RPC::Server>(*this);
+    }
 #endif
 
     service_manager = std::make_unique<Service::SM::ServiceManager>(*this);
@@ -814,16 +816,32 @@ void System::serialize(Archive& ar, const unsigned int file_version) {
 
     // This needs to be set from somewhere - might as well be here!
     if (Archive::is_loading::value) {
+        u32 cheats_pid;
+        ar & cheats_pid;
         timing->UnlockEventQueue();
         memory->SetDSP(*dsp_core);
-        cheat_engine.Connect();
-        gpu->Sync();
+        cheat_engine.Connect(cheats_pid);
 
         // Re-register gpu callback, because gsp service changed after service_manager got
         // serialized
         auto gsp = service_manager->GetService<Service::GSP::GSP_GPU>("gsp::Gpu");
         gpu->SetInterruptHandler(
             [gsp](Service::GSP::InterruptId interrupt_id) { gsp->SignalInterrupt(interrupt_id); });
+
+        // Switch the shader cache to the title running when the savestate was created
+        const u32 thread_id = gsp->GetActiveClientThreadId();
+        if (thread_id != std::numeric_limits<u32>::max()) {
+            const auto thread = kernel->GetThreadByID(thread_id);
+            if (thread) {
+                const std::shared_ptr<Kernel::Process> process = thread->owner_process.lock();
+                if (process) {
+                    gpu->Renderer().Rasterizer()->SwitchDiskResources(process->codeset->program_id);
+                }
+            }
+        }
+    } else {
+        u32 cheats_pid = cheat_engine.GetConnectedPID();
+        ar & cheats_pid;
     }
 
     save_state_status = SaveStateStatus::NONE;

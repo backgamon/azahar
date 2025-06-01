@@ -1,3 +1,5 @@
+//FILE MODIFIED BY AzaharPlus APRIL 2025
+
 // Copyright Citra Emulator Project / Azahar Emulator Project
 // Licensed under GPLv2 or any later version
 // Refer to the license.txt file included.
@@ -24,6 +26,7 @@
 #include "citra_qt/user_data_migration.h"
 #include "core/core.h"
 #include "core/savestate.h"
+#include "video_core/rasterizer_interface.h"
 
 // Needs to be included at the end due to https://bugreports.qt.io/browse/QTBUG-73263
 #include <filesystem>
@@ -244,6 +247,8 @@ private slots:
     void OnMenuSetUpSystemFiles();
     void OnMenuInstallCIA();
     void OnMenuConnectArticBase();
+    void OnMenuRemoveAzaharEncryption();
+    void OnMenuRevertEncryptionRemoval();
     void OnMenuBootHomeMenu(u32 region);
     void OnUpdateProgress(std::size_t written, std::size_t total);
     void OnCIAInstallReport(Service::AM::InstallStatus status, QString filepath);
@@ -260,6 +265,10 @@ private slots:
     void ToggleSecondaryFullscreen();
     void ChangeScreenLayout();
     void ChangeSmallScreenPosition();
+    bool IsTurboEnabled();
+    void SetTurboEnabled(bool);
+    void ReloadTurbo();
+    void AdjustSpeedLimit(bool increase);
     void UpdateSecondaryWindowVisibility();
     void ToggleScreenLayout();
     void OnSwapScreens();
@@ -295,6 +304,8 @@ private slots:
 #ifdef ENABLE_QT_UPDATE_CHECKER
     void OnEmulatorUpdateAvailable();
 #endif
+    void OnSwitchDiskResources(VideoCore::LoadCallbackStage stage, std::size_t value,
+                               std::size_t total);
 
 private:
     Q_INVOKABLE void OnMoviePlaybackCompleted();
@@ -330,6 +341,7 @@ private:
     QProgressBar* progress_bar = nullptr;
     QLabel* message_label = nullptr;
     bool show_artic_label = false;
+    QLabel* loading_shaders_label = nullptr;
     QLabel* artic_traffic_label = nullptr;
     QLabel* emu_speed_label = nullptr;
     QLabel* game_fps_label = nullptr;
@@ -347,6 +359,9 @@ private:
     // isn't created before the check is performed
     UserDataMigrator user_data_migrator;
     std::unique_ptr<QtConfig> config;
+
+    // Hotkeys
+    bool turbo_mode_active = false;
 
     // Whether emulation is currently running in Citra.
     bool emulation_running = false;

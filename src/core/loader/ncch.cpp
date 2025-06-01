@@ -1,3 +1,5 @@
+//FILE MODIFIED BY AzaharPlus APRIL 2025
+
 // Copyright Citra Emulator Project / Azahar Emulator Project
 // Licensed under GPLv2 or any later version
 // Refer to the license.txt file included.
@@ -32,7 +34,14 @@
 namespace Loader {
 
 using namespace Common::Literals;
-static const u64 UPDATE_MASK = 0x0000000e00000000;
+static constexpr u64 UPDATE_TID_HIGH = 0x0004000e00000000;
+
+static std::string g_program_id;
+
+std::string getProgramId()
+{
+	return g_program_id;
+}
 
 FileType AppLoader_NCCH::IdentifyType(FileUtil::IOFile& file) {
     u32 magic;
@@ -281,10 +290,12 @@ ResultStatus AppLoader_NCCH::Load(std::shared_ptr<Kernel::Process>& process) {
     ReadProgramId(ncch_program_id);
     std::string program_id{fmt::format("{:016X}", ncch_program_id)};
 
+	g_program_id = program_id;
     LOG_INFO(Loader, "Program ID: {}", program_id);
 
-    update_ncch.OpenFile(Service::AM::GetTitleContentPath(Service::FS::MediaType::SDMC,
-                                                          ncch_program_id | UPDATE_MASK));
+    u64 update_tid = (ncch_program_id & 0xFFFFFFFFULL) | UPDATE_TID_HIGH;
+    update_ncch.OpenFile(
+        Service::AM::GetTitleContentPath(Service::FS::MediaType::SDMC, update_tid));
     result = update_ncch.Load();
     if (result == ResultStatus::Success) {
         overlay_ncch = &update_ncch;
@@ -371,8 +382,9 @@ ResultStatus AppLoader_NCCH::DumpRomFS(const std::string& target_path) {
 ResultStatus AppLoader_NCCH::DumpUpdateRomFS(const std::string& target_path) {
     u64 program_id;
     ReadProgramId(program_id);
+    u64 update_tid = (program_id & 0xFFFFFFFFULL) | UPDATE_TID_HIGH;
     update_ncch.OpenFile(
-        Service::AM::GetTitleContentPath(Service::FS::MediaType::SDMC, program_id | UPDATE_MASK));
+        Service::AM::GetTitleContentPath(Service::FS::MediaType::SDMC, update_tid));
     return update_ncch.DumpRomFS(target_path);
 }
 

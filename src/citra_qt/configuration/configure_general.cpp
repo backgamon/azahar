@@ -1,3 +1,5 @@
+//FILE MODIFIED BY AzaharPlus APRIL 2025
+
 // Copyright Citra Emulator Project / Azahar Emulator Project
 // Licensed under GPLv2 or any later version
 // Refer to the license.txt file included.
@@ -26,8 +28,13 @@ static constexpr int SettingsToSlider(int value) {
 
 ConfigureGeneral::ConfigureGeneral(QWidget* parent)
     : QWidget(parent), ui(std::make_unique<Ui::ConfigureGeneral>()) {
-
     ui->setupUi(this);
+
+    connect(ui->turbo_limit, &QSlider::valueChanged, this, [&](double value) {
+        Settings::values.turbo_limit.SetValue(SliderToSettings(value));
+        ui->turbo_limit_display_label->setText(
+            QStringLiteral("%1%").arg(Settings::values.turbo_limit.GetValue()));
+    });
 
     // Set a minimum width for the label to prevent the slider from changing size.
     // This scales across DPIs, and is acceptable for uncapitalized strings.
@@ -60,12 +67,14 @@ ConfigureGeneral::ConfigureGeneral(QWidget* parent)
     });
 
     connect(ui->change_screenshot_dir, &QToolButton::clicked, this, [this] {
+        ui->change_screenshot_dir->setEnabled(false);
         const QString dir_path = QFileDialog::getExistingDirectory(
             this, tr("Select Screenshot Directory"), ui->screenshot_dir_path->text(),
             QFileDialog::ShowDirsOnly);
         if (!dir_path.isEmpty()) {
             ui->screenshot_dir_path->setText(dir_path);
         }
+        ui->change_screenshot_dir->setEnabled(true);
     });
 }
 
@@ -73,6 +82,10 @@ ConfigureGeneral::~ConfigureGeneral() = default;
 
 void ConfigureGeneral::SetConfiguration() {
     if (Settings::IsConfiguringGlobal()) {
+        ui->turbo_limit->setValue(SettingsToSlider(Settings::values.turbo_limit.GetValue()));
+        ui->turbo_limit_display_label->setText(
+            QStringLiteral("%1%").arg(Settings::values.turbo_limit.GetValue()));
+
         ui->toggle_check_exit->setChecked(UISettings::values.confirm_before_closing.GetValue());
         ui->toggle_background_pause->setChecked(
             UISettings::values.pause_when_in_background.GetValue());
@@ -135,12 +148,14 @@ void ConfigureGeneral::SetConfiguration() {
 }
 
 void ConfigureGeneral::ResetDefaults() {
+    ui->button_reset_defaults->setEnabled(false);
     QMessageBox::StandardButton answer = QMessageBox::question(
         this, tr("Azahar"),
         tr("Are you sure you want to <b>reset your settings</b> and close Azahar?"),
         QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
 
     if (answer == QMessageBox::No) {
+        ui->button_reset_defaults->setEnabled(true);
         return;
     }
 
@@ -194,6 +209,7 @@ void ConfigureGeneral::SetupPerGameUI() {
         ConfigurationShared::SetHighlight(ui->widget_screenshot, index == 1);
     });
 
+    ui->turbo_limit->setVisible(false);
     ui->general_group->setVisible(false);
     ui->button_reset_defaults->setVisible(false);
     ui->toggle_gamemode->setVisible(false);

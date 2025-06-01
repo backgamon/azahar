@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- FILE MODIFIED BY AzaharPlus APRIL 2025 -->
 <resources>
 
     <string-array name="systemClockNames" translatable="true">
@@ -31,11 +32,13 @@
 
     <string-array name="portraitLayouts">
         <item>@string/emulation_portrait_layout_top_full</item>
+        <item>@string/emulation_screen_layout_original</item>
         <item>@string/emulation_screen_layout_custom</item>
     </string-array>
 
     <integer-array name="portraitLayoutValues">
         <item>0</item>
+        <item>2</item>
         <item>1</item>
     </integer-array>
 
@@ -60,6 +63,24 @@
         <item>6</item>
         <item>7</item>
     </integer-array>
+
+    <string-array name="aspectRatioNames">
+        <item>@string/aspect_ratio_default</item>
+        <item>@string/aspect_ratio_16_9</item>
+        <item>@string/aspect_ratio_4_3</item>
+        <item>@string/aspect_ratio_21_9_fullscreen</item>
+        <item>@string/aspect_ratio_16_10_fullscreen_stretched</item>
+        <item>@string/aspect_ratio_stretch</item>
+    </string-array>
+    <integer-array name="aspectRatioValues">
+        <item>0</item>
+        <item>1</item>
+        <item>2</item>
+        <item>3</item>
+        <item>4</item>
+        <item>5</item>
+    </integer-array>
+
 
     <string-array name="regionNames">
         <item>@string/auto_select</item>
@@ -113,6 +134,23 @@
         <item>11</item>
     </integer-array>
 
+    <string-array name="statsPosition">
+        <item>@string/overlay_position_top_left</item>
+        <item>@string/overlay_position_center_top</item>
+        <item>@string/overlay_position_top_right</item>
+        <item>@string/overlay_position_bottom_left</item>
+        <item>@string/overlay_position_center_bottom</item>
+        <item>@string/overlay_position_bottom_right</item>
+    </string-array>
+    <integer-array name="statsPositionValues">
+        <item>0</item>
+        <item>1</item>
+        <item>2</item>
+        <item>3</item>
+        <item>4</item>
+        <item>5</item>
+    </integer-array>
+
     <string-array name="n3dsButtons">
         <item>@string/button_a</item>
         <item>@string/button_b</item>
@@ -129,6 +167,7 @@
         <item>@string/controller_c</item>
         <item>@string/button_home</item>
         <item>@string/button_swap</item>
+        <item>@string/button_turbo</item>
     </string-array>
 
     <string-array name="cameraImageSourceNames">
@@ -320,6 +359,7 @@
     </integer-array>
 
     <string-array name="resolutionFactorNames">
+        <item>@string/internal_resolution_setting_auto</item>
         <item>@string/internal_resolution_setting_1x</item>
         <item>@string/internal_resolution_setting_2x</item>
         <item>@string/internal_resolution_setting_3x</item>
@@ -332,6 +372,7 @@
         <item>@string/internal_resolution_setting_10x</item>
     </string-array>
     <integer-array name="resolutionFactorValues">
+        <item>0</item>
         <item>1</item>
         <item>2</item>
         <item>3</item>

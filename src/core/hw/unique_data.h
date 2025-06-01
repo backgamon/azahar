@@ -1,3 +1,5 @@
+//FILE MODIFIED BY AzaharPlus APRIL 2025
+
 // Copyright Citra Emulator Project / Azahar Emulator Project
 // Licensed under GPLv2 or any later version
 // Refer to the license.txt file included.
@@ -157,4 +159,8 @@ std::unique_ptr<FileUtil::IOFile> OpenUniqueCryptoFile(const std::string& filena
 
 bool IsFullConsoleLinked();
 void UnlinkConsole();
+
+std::vector<std::string> GetAppFilepaths();
+int RemoveAzaharEncryption(const std::string& path);
+int RevertEncryptionRemoval();
 } // namespace HW::UniqueData
