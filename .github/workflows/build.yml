@@ -157,9 +157,14 @@ jobs:
         run: choco install ccache ninja ptime wget
       - name: Install vulkan-sdk (MSVC)
         if: ${{ matrix.target == 'msvc' }}
+      - name: Install vulkan-sdk (MSVC)
+        if: ${{ matrix.target == 'msvc' }}
+        shell: pwsh
         run: |
-          wget https://sdk.lunarg.com/sdk/download/1.4.304.1/windows/vulkansdk-windows-X64-1.4.304.1.exe -O D:/a/temp/vulkan.exe
-          D:/a/temp/vulkan.exe --accept-licenses --default-answer --confirm-command install
+         $VulkanUrl = "https://sdk.lunarg.com/sdk/download/1.3.296.0/windows/VulkanSDK-1.3.296.0-Installer.exe"
+         $OutFile = "D:\a\_temp\vulkan.exe"
+         Invoke-WebRequest -Uri $VulkanUrl -OutFile $OutFile
+         Start-Process -FilePath $OutFile -ArgumentList "--accept-licenses --default-answer --confirm-command install" -NoNewWindow -Wait
       - name: Set up MSYS2
         if: ${{ matrix.target == 'msys2' }}
         uses: msys2/setup-msys2@v2
