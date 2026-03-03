@@ -1,3 +1,5 @@
+//FILE MODIFIED BY AzaharPlus APRIL 2025
+
 // Copyright Citra Emulator Project / Azahar Emulator Project
 // Licensed under GPLv2 or any later version
 // Refer to the license.txt file included.
@@ -726,6 +728,8 @@ std::string MacToString(const std::array<u8, 6>& mac);
 u64 MacToU64(const std::string& mac);
 
 std::string GenerateRandomMAC();
+
+std::array<u8, 6> GetConsoleMacAddress(Core::System& system);
 
 } // namespace Service::CFG
 

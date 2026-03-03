@@ -1,3 +1,5 @@
+//FILE MODIFIED BY AzaharPlus APRIL 2025
+
 // Copyright Citra Emulator Project / Azahar Emulator Project
 // Licensed under GPLv2 or any later version
 // Refer to the license.txt file included.
@@ -113,6 +115,15 @@ struct ImportContentContext {
 };
 static_assert(sizeof(ImportContentContext) == 0x18, "Invalid ImportContentContext size");
 
+struct TitleInfo {
+    u64_le tid;
+    u64_le size;
+    u16_le version;
+    u16_le unused;
+    u32_le type;
+};
+static_assert(sizeof(TitleInfo) == 0x18, "Title info structure size is wrong");
+
 struct CTCert {
     u32_be signature_type{};
     std::array<u8, 0x1E> signature_r{};
@@ -152,7 +163,7 @@ private:
     friend class CIAFile;
     std::unique_ptr<FileUtil::IOFile> file;
     bool is_error = false;
-//    bool is_not_ncch = false;
+    bool is_not_ncch = false;
     bool decryption_authorized = false;
 
     std::size_t written = 0;
@@ -207,8 +218,11 @@ public:
     ResultVal<std::size_t> Write(u64 offset, std::size_t length, bool flush, bool update_timestamp,
                                  const u8* buffer) override;
 
+    Result PrepareToImportContent(const FileSys::TitleMetadata& tmd);
     Result ProvideTicket(const FileSys::Ticket& ticket);
+    Result ProvideTMDForAdditionalContent(const FileSys::TitleMetadata& tmd);
     const FileSys::TitleMetadata& GetTMD();
+    FileSys::Ticket& GetTicket();
     CIAInstallState GetCiaInstallState() {
         return install_state;
     }
@@ -225,8 +239,16 @@ public:
         is_done = true;
     }
 
+    void Cancel() {
+        is_cancel = true;
+        Close();
+    }
+
+    void AuthorizeDecryptionFromHLE();
+
 private:
     friend void AuthorizeCIAFileDecryption(CIAFile* cia_file, Kernel::HLERequestContext& ctx);
+
     Core::System& system;
 
     // Sections (tik, tmd, contents) are being imported individually
@@ -234,6 +256,8 @@ private:
     bool decryption_authorized;
     bool is_done = false;
     bool is_closed = false;
+    bool is_cancel = false;
+    bool is_additional_content = false;
 
     // Whether it's installing an update, and what step of installation it is at
     bool is_update = false;
@@ -260,11 +284,13 @@ class CurrentImportingTitle {
 public:
     explicit CurrentImportingTitle(Core::System& system_, u64 title_id_,
                                    Service::FS::MediaType media_type_)
-        : cia_file(system_, media_type_, true), title_id(title_id_), media_type(media_type_) {}
+        : cia_file(system_, media_type_, true), title_id(title_id_), media_type(media_type_),
+          tmd_provided(false) {}
 
     CIAFile cia_file;
     u64 title_id;
     Service::FS::MediaType media_type;
+    bool tmd_provided;
 };
 
 // A file handled returned for Tickets to be written into and subsequently installed.
@@ -360,6 +386,19 @@ private:
  */
 InstallStatus InstallCIA(const std::string& path,
                          std::function<ProgressCallback>&& update_callback = nullptr);
+
+/**
+ * Checks if the provided path is a valid CIA file
+ * that can be installed.
+ * @param path file path of the CIA file to check to install
+ */
+InstallStatus CheckCIAToInstall(const std::string& path, bool& is_compressed,
+                                bool check_encryption);
+
+/**
+ * Get CIA metadata information from file.
+ */
+ResultVal<std::pair<TitleInfo, std::unique_ptr<Loader::SMDH>>> GetCIAInfos(const std::string& path);
 
 /**
  * Downloads and installs title form the Nintendo Update Service.
@@ -803,6 +842,17 @@ public:
         void BeginImportProgramTemporarily(Kernel::HLERequestContext& ctx);
 
         /**
+         * AM::CancelImportProgram service function
+         * Cancel importing a CTR Installable Archive
+         *  Inputs:
+         *      0 : Command header (0x04040002)
+         *      1-2 : CIAFile handle application wrote to
+         *  Outputs:
+         *      1 : Result, 0 on success, otherwise error code
+         */
+        void CancelImportProgram(Kernel::HLERequestContext& ctx);
+
+        /**
          * AM::EndImportProgram service function
          * Finish importing from a CTR Installable Archive
          *  Inputs:
@@ -1038,6 +1088,16 @@ public:
         void GetNumTicketsOfProgram(Kernel::HLERequestContext& ctx);
 
         void ListTicketInfos(Kernel::HLERequestContext& ctx);
+
+        void GetNumCurrentContentInfos(Kernel::HLERequestContext& ctx);
+
+        void FindCurrentContentInfos(Kernel::HLERequestContext& ctx);
+
+        void ListCurrentContentInfos(Kernel::HLERequestContext& ctx);
+
+        void CalculateContextRequiredSize(Kernel::HLERequestContext& ctx);
+
+        void UpdateImportContentContexts(Kernel::HLERequestContext& ctx);
 
         void ExportTicketWrapped(Kernel::HLERequestContext& ctx);
 
