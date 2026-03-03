@@ -405,8 +405,14 @@ void QtConfig::ReadControlValues() {
             ReadSetting(Settings::QKeys::touch_device, QStringLiteral("engine:emu_window"))
                 .toString()
                 .toStdString();
+        profile.controller_touch_device =
+            ReadSetting(QStringLiteral("controller_touch_device"),QStringLiteral(""))
+                .toString()
+                .toStdString();
         profile.use_touch_from_button =
             ReadSetting(Settings::QKeys::use_touch_from_button, false).toBool();
+        profile.use_touchpad =
+            ReadSetting(QStringLiteral("use_touchpad"), false).toBool();
         profile.touch_from_button_map_index =
             ReadSetting(Settings::QKeys::touch_from_button_map, 0).toInt();
         profile.touch_from_button_map_index =
@@ -568,13 +574,13 @@ void QtConfig::ReadMiscellaneousValues() {
 
     ReadBasicSetting(Settings::values.log_filter);
     ReadBasicSetting(Settings::values.log_regex_filter);
-#ifdef __unix__
+    #ifdef __unix__
     ReadBasicSetting(Settings::values.enable_gamemode);
-#endif
-#ifdef ENABLE_QT_UPDATE_CHECKER
+    #endif
+    #ifdef ENABLE_QT_UPDATE_CHECKER
     ReadBasicSetting(UISettings::values.check_for_update_on_start);
     ReadBasicSetting(UISettings::values.update_check_channel);
-#endif
+    #endif
 
     qt_config->endGroup();
 }
@@ -818,9 +824,9 @@ void QtConfig::ReadUIValues() {
         UISettings::values.theme =
             ReadSetting(Settings::QKeys::theme, QString::fromUtf8(UISettings::themes[0].second))
                 .toString();
-#ifdef USE_DISCORD_PRESENCE
+        #ifdef USE_DISCORD_PRESENCE
         ReadBasicSetting(UISettings::values.enable_discord_presence);
-#endif
+        #endif
         ReadBasicSetting(UISettings::values.screenshot_resolution_factor);
 
         ReadUILayoutValues();
@@ -1005,6 +1011,8 @@ void QtConfig::SaveControlValues() {
         WriteSetting(Settings::QKeys::touch_device, QString::fromStdString(profile.touch_device),
                      QStringLiteral("engine:emu_window"));
         WriteSetting(Settings::QKeys::use_touch_from_button, profile.use_touch_from_button, false);
+        WriteSetting(QStringLiteral("use_touchpad"), profile.use_touchpad, false);
+        WriteSetting(QStringLiteral("controller_touch_device"), QString::fromStdString(profile.controller_touch_device), QStringLiteral(""));
         WriteSetting(Settings::QKeys::touch_from_button_map, profile.touch_from_button_map_index,
                      0);
         WriteSetting(Settings::QKeys::udp_input_address,
@@ -1147,13 +1155,13 @@ void QtConfig::SaveMiscellaneousValues() {
 
     WriteBasicSetting(Settings::values.log_filter);
     WriteBasicSetting(Settings::values.log_regex_filter);
-#ifdef __unix__
+    #ifdef __unix__
     WriteBasicSetting(Settings::values.enable_gamemode);
-#endif
-#ifdef ENABLE_QT_UPDATE_CHECKER
+    #endif
+    #ifdef ENABLE_QT_UPDATE_CHECKER
     WriteBasicSetting(UISettings::values.check_for_update_on_start);
     WriteBasicSetting(UISettings::values.update_check_channel);
-#endif
+    #endif
     qt_config->endGroup();
 }
 
@@ -1342,9 +1350,9 @@ void QtConfig::SaveUIValues() {
     if (global) {
         WriteSetting(Settings::QKeys::theme, UISettings::values.theme,
                      QString::fromUtf8(UISettings::themes[0].second));
-#ifdef USE_DISCORD_PRESENCE
+        #ifdef USE_DISCORD_PRESENCE
         WriteBasicSetting(UISettings::values.enable_discord_presence);
-#endif
+        #endif
         WriteBasicSetting(UISettings::values.screenshot_resolution_factor);
 
         SaveUILayoutValues();
