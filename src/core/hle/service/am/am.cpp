@@ -906,15 +906,7 @@ bool CIAFile::Close() {
             if (abort) {
                 break;
             }
-
-            // If the file to delete is the current launched rom, signal the system to delete
-            // the current rom instead of deleting it now, once all the handles to the file
-            // are closed.
-            std::string to_delete =
-                GetTitleContentPath(media_type, old_tmd.GetTitleID(), old_index);
-            if (!system.IsPoweredOn() || !system.SetSelfDelete(to_delete)) {
-                FileUtil::Delete(to_delete);
-            }
+            FileUtil::Delete(GetTitleContentPath(media_type, old_tmd.GetTitleID(), old_index));
         }
 
         FileUtil::Delete(old_tmd_path);
@@ -2966,13 +2958,17 @@ void Module::Interface::GetDeviceID(Kernel::HLERequestContext& ctx) {
 	        return;
 	    }
 
-	    deviceID = otp.GetDeviceID();
-	    if (am->force_new_device_id) {
-	        deviceID |= 0x80000000;
-	    }
-	    if (am->force_old_device_id) {
-	        deviceID &= ~0x80000000;
-	    }
+        deviceID = otp.GetDeviceID();
+        if (am->force_new_device_id || am->force_old_device_id) {
+            if (am->force_new_device_id) {
+                deviceID |= 0x80000000;
+            }
+            if (am->force_old_device_id) {
+                deviceID &= ~0x80000000;
+            }
+        } else if (Settings::values.toggle_unique_data_console_type) {
+            deviceID ^= 0x80000000;
+        }
     }
 
     IPC::RequestBuilder rb = rp.MakeBuilder(3, 0);
