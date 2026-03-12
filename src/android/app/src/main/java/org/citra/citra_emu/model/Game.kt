@@ -1,4 +1,6 @@
-// Copyright Citra Emulator Project / Lime3DS Emulator Project
+//FILE MODIFIED BY AzaharPlus APRIL 2025
+
+// Copyright Citra Emulator Project / Azahar Emulator Project
 // Licensed under GPLv2 or any later version
 // Refer to the license.txt file included.
 
@@ -16,17 +18,22 @@ import org.citra.citra_emu.activities.EmulationActivity
 @Parcelize
 @Serializable
 class Game(
+    val valid: Boolean = false,
     val title: String = "",
     val description: String = "",
     val path: String = "",
     val titleId: Long = 0L,
+    val mediaType: MediaType = MediaType.GAME_CARD,
     val company: String = "",
     val regions: String = "",
     val isInstalled: Boolean = false,
     val isSystemTitle: Boolean = false,
     val isVisibleSystemTitle: Boolean = false,
+    val isInsertable: Boolean = false,
     val icon: IntArray? = null,
-    val filename: String
+    val fileType: String = "",
+    val isCompressed: Boolean = false,
+    val filename: String,
 ) : Parcelable {
     val keyAddedToLibraryTime get() = "${filename}_AddedToLibraryTime"
     val keyLastPlayedTime get() = "${filename}_LastPlayed"
@@ -55,15 +62,28 @@ class Game(
         result = 31 * result + regions.hashCode()
         result = 31 * result + path.hashCode()
         result = 31 * result + titleId.hashCode()
+        result = 31 * result + mediaType.hashCode()
         result = 31 * result + company.hashCode()
         return result
+    }
+
+    enum class MediaType(val value: Int) {
+        NAND(0),
+        SDMC(1),
+        GAME_CARD(2);
+
+        companion object {
+            fun fromInt(value: Int): MediaType? {
+                return MediaType.entries.find { it.value == value }
+            }
+        }
     }
 
     companion object {
         val allExtensions: Set<String> get() = extensions + badExtensions
 
         val extensions: Set<String> = HashSet(
-            listOf("3ds", "3dsx", "elf", "axf", "cci", "cxi", "app")
+            listOf("3dsx", "app", "axf", "cci", "cxi", "elf", "z3dsx", "zcci", "zcxi", "3ds")
         )
 
         val badExtensions: Set<String> = HashSet(

@@ -8,13 +8,13 @@ REV_NAME="azahar-$OS-$TARGET-$GITDATE-$GITREV"
 # Determine the name of the release being built.
 if [ "$GITHUB_REF_TYPE" = "tag" ]; then
     RELEASE_NAME=azahar-$GITHUB_REF_NAME
-    REV_NAME="azahar-$GITHUB_REF_NAME-$OS-$TARGET"
+    REV_NAME="azahar-$OS-$TARGET-$GITHUB_REF_NAME"
 else
     RELEASE_NAME=azahar-head
 fi
 
 # Archive and upload the artifacts.
-mkdir artifacts
+mkdir -p artifacts
 
 function pack_artifacts() {
     ARTIFACTS_PATH="$1"
@@ -49,11 +49,6 @@ function pack_artifacts() {
      # Clean up created rev artifacts directory.
     rm -rf "$REV_NAME"
 }
-
-if [ "$OS" = "windows" ] && [ "$GITHUB_REF_TYPE" = "tag" ]; then
-    # Move the installer to the artifacts directory
-    mv src/installer/bin/*.exe artifacts/
-fi
 
 if [ -n "$UNPACKED" ]; then
     # Copy the artifacts to be uploaded unpacked.

@@ -1,4 +1,4 @@
-// Copyright 2014 Citra Emulator Project
+// Copyright Citra Emulator Project / Azahar Emulator Project
 // Licensed under GPLv2 or any later version
 // Refer to the license.txt file included.
 
@@ -54,7 +54,7 @@ public:
     // loader and pm, which we HLEed, we can just directly use it here
     void RegisterProgramInfo(u32 process_id, u64 program_id, const std::string& filepath);
 
-    std::string GetCurrentGamecardPath() const;
+    std::string GetRegisteredGamecardPath() const;
 
     struct ProductInfo {
         std::array<u8, 0x10> product_code;
@@ -81,6 +81,10 @@ public:
     void RegisterSecureValueBackend(const std::shared_ptr<FileSys::SecureValueBackend>& backend) {
         secure_value_backend = backend;
     }
+
+    static ResultVal<u16> GetSpecialContentIndexFromGameCard(u64 title_id, SpecialContentType type);
+    static ResultVal<u16> GetSpecialContentIndexFromTMD(MediaType media_type, u64 title_id,
+                                                        SpecialContentType type);
 
 private:
     void Initialize(Kernel::HLERequestContext& ctx);
@@ -360,6 +364,8 @@ private:
      *      3: Free byte count high word
      */
     void GetFreeBytes(Kernel::HLERequestContext& ctx);
+
+    void GetCardType(Kernel::HLERequestContext& ctx);
 
     /**
      * FS_User::GetSdmcArchiveResource service function.
@@ -737,10 +743,6 @@ private:
      *      4-5 : Secure Value
      */
     void GetSaveDataSecureValue(Kernel::HLERequestContext& ctx);
-
-    static ResultVal<u16> GetSpecialContentIndexFromGameCard(u64 title_id, SpecialContentType type);
-    static ResultVal<u16> GetSpecialContentIndexFromTMD(MediaType media_type, u64 title_id,
-                                                        SpecialContentType type);
 
     std::unordered_map<u32, ProgramInfo> program_info_map;
     std::string current_gamecard_path;

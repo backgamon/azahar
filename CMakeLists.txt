@@ -1,5 +1,6 @@
-# CMake 3.12 required for 20 to be a valid value for CXX_STANDARD
-cmake_minimum_required(VERSION 3.15)
+# CMake >=3.12 required for 20 to be a valid value for CXX_STANDARD,
+# and >=3.25 required to make LTO work on Android.
+cmake_minimum_required(VERSION 3.25)
 
 # Don't override the warning flags in MSVC:
 cmake_policy(SET CMP0092 NEW)
@@ -18,6 +19,13 @@ include(DownloadExternals)
 include(CMakeDependentOption)
 
 project(citra LANGUAGES C CXX ASM)
+# must be invoked after project() command when using CMAKE_TOOLCHAIN_FILE
+include(FindPkgConfig)
+if (CMAKE_SYSTEM_NAME STREQUAL "Darwin" OR CMAKE_SYSTEM_NAME STREQUAL "iOS")
+    enable_language(OBJC OBJCXX)
+endif()
+
+option(ENABLE_LIBRETRO "Build as a LibRetro core" OFF)
 
 # Some submodules like to pick their own default build type if not specified.
 # Make sure we default to Release build type always, unless the generator has custom types.
@@ -25,7 +33,7 @@ if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
     set(CMAKE_BUILD_TYPE "Release" CACHE STRING "Choose the type of build." FORCE)
 endif()
 
-if (APPLE)
+if (APPLE AND NOT ENABLE_LIBRETRO)
     # Silence warnings on empty objects, for example when platform-specific code is #ifdef'd out.
     set(CMAKE_C_ARCHIVE_CREATE "<CMAKE_AR> Scr <TARGET> <LINK_FLAGS> <OBJECTS>")
     set(CMAKE_CXX_ARCHIVE_CREATE "<CMAKE_AR> Scr <TARGET> <LINK_FLAGS> <OBJECTS>")
@@ -42,7 +50,16 @@ if (APPLE)
         set(CMAKE_FIND_ROOT_PATH_MODE_PACKAGE BOTH)
     else()
         # Minimum macOS 13
-        set(CMAKE_OSX_DEPLOYMENT_TARGET "13.0")
+        set(CMAKE_OSX_DEPLOYMENT_TARGET "13.4")
+
+        # Catch compiler issue on AppleClang versions below 15.0
+        # TODO: Remove this check when we drop macOS 13 Ventura
+        if (CMAKE_CXX_COMPILER_ID STREQUAL "AppleClang" AND
+            CMAKE_CXX_COMPILER_VERSION VERSION_LESS 15.0)
+            message(FATAL_ERROR "AppleClang 15.0 or later is required due to a compiler bug in earlier versions.\n"
+                                "Current version: ${CMAKE_CXX_COMPILER_VERSION}\n"
+                                "After updating, delete 'CMakeCache.txt' in the build directory.")
+        endif()
     endif()
 endif()
 
@@ -52,6 +69,13 @@ if (CMAKE_BUILD_TYPE STREQUAL Debug)
 else()
     set(IS_DEBUG_BUILD OFF)
     set(IS_RELEASE_BUILD ON)
+endif()
+
+if (MSVC)
+    add_compile_options(
+        /wd4711 # Suppresses `function 'xxxxx' selected for automatic inline expansion` messages
+        /wd5045 # Suppresses `Compiler will insert Spectre mitigation for memory load if /Qspectre switch specified` messages
+    )
 endif()
 
 # LTO takes too much memory and time using MSVC.
@@ -69,8 +93,18 @@ else()
     set(DEFAULT_ENABLE_OPENGL ON)
 endif()
 
+# Track which options were explicitly set by the user (for libretro conflict detection)
+set(_LIBRETRO_INCOMPATIBLE_OPTIONS
+    ENABLE_SDL2 ENABLE_QT ENABLE_WEB_SERVICE ENABLE_SCRIPTING
+    ENABLE_OPENAL ENABLE_ROOM ENABLE_ROOM_STANDALONE ENABLE_CUBEB ENABLE_LIBUSB)
+set(_USER_SET_OPTIONS "")
+foreach(_opt IN LISTS _LIBRETRO_INCOMPATIBLE_OPTIONS)
+    if(DEFINED ${_opt})
+        list(APPEND _USER_SET_OPTIONS ${_opt})
+    endif()
+endforeach()
+
 option(ENABLE_SDL2 "Enable using SDL2" ON)
-CMAKE_DEPENDENT_OPTION(ENABLE_SDL2_FRONTEND "Enable the SDL2 frontend" OFF "ENABLE_SDL2;NOT ANDROID AND NOT IOS" OFF)
 option(USE_SYSTEM_SDL2 "Use the system SDL2 lib (instead of the bundled one)" OFF)
 
 # Set bundled qt as dependent options.
@@ -79,7 +113,8 @@ option(ENABLE_QT_TRANSLATION "Enable translations for the Qt frontend" OFF)
 option(ENABLE_QT_UPDATE_CHECKER "Enable built-in update checker for the Qt frontend" OFF)
 
 CMAKE_DEPENDENT_OPTION(ENABLE_TESTS "Enable generating tests executable" ON "NOT IOS" OFF)
-CMAKE_DEPENDENT_OPTION(ENABLE_ROOM "Enable generating dedicated room executable" ON "NOT ANDROID AND NOT IOS" OFF)
+CMAKE_DEPENDENT_OPTION(ENABLE_ROOM "Enable dedicated room functionality" ON "NOT ANDROID AND NOT IOS" OFF)
+CMAKE_DEPENDENT_OPTION(ENABLE_ROOM_STANDALONE "Enable generating a standalone dedicated room executable" ON "ENABLE_ROOM" OFF)
 
 option(ENABLE_WEB_SERVICE "Enable web services (telemetry, etc.)" ON)
 option(ENABLE_SCRIPTING "Enable RPC server for scripting" ON)
@@ -97,12 +132,41 @@ option(USE_DISCORD_PRESENCE "Enables Discord Rich Presence" OFF)
 
 option(ENABLE_MICROPROFILE "Enables microprofile capabilities" OFF)
 
+option(ENABLE_SSE42 "Enable SSE4.2 optimizations on x86_64" OFF)
+
+option(ENABLE_DEVELOPER_OPTIONS "Enable functionality targeted at emulator developers" OFF)
+
 # Compile options
 CMAKE_DEPENDENT_OPTION(COMPILE_WITH_DWARF "Add DWARF debugging information" ${IS_DEBUG_BUILD} "MINGW" OFF)
 option(ENABLE_LTO "Enable link time optimization" ${DEFAULT_ENABLE_LTO})
 option(ENABLE_NATIVE_OPTIMIZATION "Enables processor-specific optimizations via -march=native" OFF)
 option(CITRA_USE_PRECOMPILED_HEADERS "Use precompiled headers" ON)
 option(CITRA_WARNINGS_AS_ERRORS "Enable warnings as errors" ON)
+
+# Handle incompatible options for libretro builds
+if(ENABLE_LIBRETRO)
+    # Check for explicitly-set conflicting options
+    set(_CONFLICTS "")
+    foreach(_opt IN LISTS _LIBRETRO_INCOMPATIBLE_OPTIONS)
+        list(FIND _USER_SET_OPTIONS ${_opt} _idx)
+        if(NOT _idx EQUAL -1 AND ${_opt})
+            list(APPEND _CONFLICTS ${_opt})
+        endif()
+    endforeach()
+
+    if(_CONFLICTS)
+        string(REPLACE ";" ", " _CONFLICTS_STR "${_CONFLICTS}")
+        message(FATAL_ERROR
+            "ENABLE_LIBRETRO is incompatible with: ${_CONFLICTS_STR}\n"
+            "These options were explicitly enabled but are not supported for libretro builds.\n"
+            "Remove these options or set them to OFF.")
+    endif()
+
+    # Force disable incompatible options (handles defaulted-on options)
+    foreach(_opt IN LISTS _LIBRETRO_INCOMPATIBLE_OPTIONS)
+        set(${_opt} OFF CACHE BOOL "Disabled for libretro" FORCE)
+    endforeach()
+endif()
 
 # Pass the following values to C++ land
 if (ENABLE_QT)
@@ -111,8 +175,20 @@ endif()
 if (ENABLE_QT_TRANSLATION)
     add_definitions(-DENABLE_QT_TRANSLATION)
 endif()
-if (ENABLE_SDL2_FRONTEND)
-    add_definitions(-DENABLE_SDL2_FRONTEND)
+if (ENABLE_ROOM)
+    add_definitions(-DENABLE_ROOM)
+endif()
+if (ENABLE_SDL2)
+    add_definitions(-DENABLE_SDL2)
+endif()
+
+if(ENABLE_SSE42 AND (CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64"))
+    message(STATUS "SSE4.2 enabled for x86_64")
+    if(MSVC)
+        SET(SSE42_COMPILE_OPTION /arch:SSE4.2)
+    else()
+        SET(SSE42_COMPILE_OPTION -msse4.1 -msse4.2)
+    endif()
 endif()
 
 include(CitraHandleSystemLibs)
@@ -182,7 +258,7 @@ function(check_submodules_present)
     foreach(module ${gitmodules})
         string(REGEX REPLACE "path *= *" "" module ${module})
         if (NOT EXISTS "${PROJECT_SOURCE_DIR}/${module}/.git")
-            message(SEND_ERROR "Git submodule ${module} not found."
+            message(SEND_ERROR "Git submodule ${module} not found.\n"
                     "Please run: git submodule update --init --recursive")
         endif()
     endforeach()
@@ -259,6 +335,9 @@ set(CMAKE_VISIBILITY_INLINES_HIDDEN NO)
 # set up output paths for executable binaries
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${PROJECT_BINARY_DIR}/bin/$<CONFIG>)
 
+if (ENABLE_LIBRETRO)
+  set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+endif()
 
 # System imported libraries
 # ======================
@@ -269,7 +348,7 @@ find_package(Threads REQUIRED)
 
 if (ENABLE_QT)
     if (NOT USE_SYSTEM_QT)
-        download_qt(6.7.2)
+        download_qt(6.9.3)
     endif()
 
     find_package(Qt6 REQUIRED COMPONENTS Widgets Multimedia Concurrent)
@@ -318,7 +397,7 @@ if (APPLE)
     find_library(IOSURFACE_LIBRARY IOSurface REQUIRED)
     set(PLATFORM_LIBRARIES ${COCOA_LIBRARY} ${AVFOUNDATION_LIBRARY} ${IOSURFACE_LIBRARY} ${MOLTENVK_LIBRARY})
 
-    if (ENABLE_VULKAN)
+    if (ENABLE_VULKAN AND NOT ENABLE_LIBRETRO)
         if (NOT USE_SYSTEM_MOLTENVK)
             download_moltenvk()
         endif()
@@ -452,12 +531,10 @@ if (ENABLE_SDL2 AND USE_SYSTEM_SDL2)
 endif()
 
 if (ENABLE_LIBUSB AND USE_SYSTEM_LIBUSB)
-    include(FindPkgConfig)
     find_package(LibUSB)
 endif()
 
 if (USE_SYSTEM_SOUNDTOUCH)
-    include(FindPkgConfig)
     find_package(SoundTouch REQUIRED)
     add_library(SoundTouch INTERFACE)
     target_link_libraries(SoundTouch INTERFACE "${SOUNDTOUCH_LIBRARIES}")
@@ -474,12 +551,9 @@ if (NOT ANDROID AND NOT IOS)
     include(BundleTarget)
     if (ENABLE_QT)
         qt_bundle_target(citra_meta)
-    elseif (ENABLE_SDL2_FRONTEND)
-        bundle_target(citra_meta)
     endif()
-
-    if (ENABLE_ROOM)
-        bundle_target(citra_room)
+    if (ENABLE_ROOM_STANDALONE)
+        bundle_target(citra_room_standalone)
     endif()
 endif()
 

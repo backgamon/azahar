@@ -76,7 +76,7 @@ const std::array<ServiceModuleInfo, 41> service_module_map{
           Y2R::InstallInterfaces(system);
       },
       false},
-     {"CECD", 0x00040130'00002602, CECD::InstallInterfaces, false},
+     {"CECD", 0x00040130'00002602, CECD::InstallInterfaces, true},
      {"CFG", 0x00040130'00001702, CFG::InstallInterfaces, false},
      {"DLP", 0x00040130'00002802, DLP::InstallInterfaces, false},
      {"DSP", 0x00040130'00001A02, DSP::InstallInterfaces, false},
@@ -178,7 +178,7 @@ void ServiceFrameworkBase::ReportUnimplementedFunction(u32* cmd_buf, const Funct
 void ServiceFrameworkBase::HandleSyncRequest(Kernel::HLERequestContext& context) {
     auto itr = handlers.find(context.CommandHeader().command_id.Value());
     const FunctionInfoBase* info = itr == handlers.end() ? nullptr : &itr->second;
-    if (info == nullptr || info->handler_callback == nullptr) {
+    if (info == nullptr || !info->implemented) {
         context.ReportUnimplemented();
         return ReportUnimplementedFunction(context.CommandBuffer(), info);
     }

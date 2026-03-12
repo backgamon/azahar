@@ -1,5 +1,10 @@
-// SPDX-FileCopyrightText: Copyright 2020 yuzu Emulator Project
-// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright Citra Emulator Project / Azahar Emulator Project
+// Licensed under GPLv2 or any later version
+// Refer to the license.txt file included.
+
+// Copyright 2020 yuzu Emulator Project
+// Licensed under GPLv2 or any later version
+// Refer to the license.txt file included.
 
 #include <utility>
 #include <vector>
@@ -168,8 +173,8 @@ void ConfigurePerGame::LoadConfiguration() {
 
     ui->display_filepath->setText(QString::fromStdString(filename));
 
-    ui->display_format->setText(
-        QString::fromStdString(Loader::GetFileTypeString(loader->GetFileType())));
+    ui->display_format->setText(QString::fromStdString(
+        Loader::GetFileTypeString(loader->GetFileType(), loader->IsFileCompressed())));
 
     const auto valueText = ReadableByteSize(FileUtil::GetSize(filename));
     ui->display_size->setText(valueText);

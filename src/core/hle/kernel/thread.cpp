@@ -455,9 +455,9 @@ std::shared_ptr<Thread> SetupMainThread(KernelSystem& kernel, u32 entry_point, u
     }
 
     // Initialize new "main" thread
-    auto thread_res =
-        kernel.CreateThread("main", entry_point, priority, 0, owner_process->ideal_processor,
-                            Memory::HEAP_VADDR_END, owner_process, sleep_time_ns == 0);
+    auto thread_res = kernel.CreateThread(
+        fmt::format("{}-main", owner_process->codeset->name), entry_point, priority, 0,
+        owner_process->ideal_processor, Memory::HEAP_VADDR_END, owner_process, sleep_time_ns == 0);
 
     std::shared_ptr<Thread> thread = std::move(thread_res).Unwrap();
 
@@ -528,8 +528,20 @@ ThreadManager::~ThreadManager() {
     }
 }
 
-std::span<const std::shared_ptr<Thread>> ThreadManager::GetThreadList() {
+std::span<const std::shared_ptr<Thread>> ThreadManager::GetThreadList() const {
     return thread_list;
+}
+
+std::shared_ptr<Thread> KernelSystem::GetThreadByID(u32 thread_id) const {
+    for (u32 core_id = 0; core_id < Core::System::GetInstance().GetNumCores(); core_id++) {
+        const auto thread_list = GetThreadManager(core_id).GetThreadList();
+        for (auto& thread : thread_list) {
+            if (thread->thread_id == thread_id) {
+                return thread;
+            }
+        }
+    }
+    return nullptr;
 }
 
 } // namespace Kernel

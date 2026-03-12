@@ -1,3 +1,5 @@
+//FILE MODIFIED BY AzaharPlus APRIL 2025
+
 // Copyright Citra Emulator Project / Azahar Emulator Project
 // Licensed under GPLv2 or any later version
 // Refer to the license.txt file included.
@@ -57,6 +59,15 @@ public:
          *      1 : Result of function, 0 on success, otherwise error code
          */
         void GetConnectResult(Kernel::HLERequestContext& ctx);
+
+        /**
+         * AC::CancelConnectAsync service function
+         *  Inputs:
+         *      1 : ProcessId Header
+         *  Outputs:
+         *      1 : Result of function, 0 on success, otherwise error code
+         */
+        void CancelConnectAsync(Kernel::HLERequestContext& ctx);
 
         /**
          * AC::CloseAsync service function
@@ -119,6 +130,18 @@ public:
          *      2 : Infra Priority
          */
         void SetRequestEulaVersion(Kernel::HLERequestContext& ctx);
+
+        /**
+         * AC::GetNZoneBeaconNotFoundEvent service function
+         *  Inputs:
+         *      1 : ProcessId Header
+         *      2 : ProcessId
+         *      3 : Copy Handle Header
+         *      4 : Event handle, should be signaled when a Nintendo Zone beacon is not found
+         *  Outputs:
+         *      1 : Result of function, 0 on success, otherwise error code
+         */
+        void GetNZoneBeaconNotFoundEvent(Kernel::HLERequestContext& ctx);
 
         /**
          * AC::RegisterDisconnectEvent service function
@@ -190,6 +213,7 @@ protected:
     std::shared_ptr<Kernel::Event> close_event;
     std::shared_ptr<Kernel::Event> connect_event;
     std::shared_ptr<Kernel::Event> disconnect_event;
+    std::shared_ptr<Kernel::Event> nintendo_zone_beacon_not_found_event;
 
 private:
     [[maybe_unused]]

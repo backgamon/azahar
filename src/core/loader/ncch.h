@@ -1,4 +1,6 @@
-// Copyright 2014 Citra Emulator Project
+//FILE MODIFIED BY AzaharPlus APRIL 2025
+
+// Copyright Citra Emulator Project / Azahar Emulator Project
 // Licensed under GPLv2 or any later version
 // Refer to the license.txt file included.
 
@@ -12,22 +14,28 @@
 
 namespace Loader {
 
+std::string getProgramId();
+void resetProgramId();
+
 /// Loads an NCCH file (e.g. from a CCI, or the first NCCH in a CXI)
 class AppLoader_NCCH final : public AppLoader {
 public:
     AppLoader_NCCH(Core::System& system_, FileUtil::IOFile&& file, const std::string& filepath)
         : AppLoader(system_, std::move(file)), base_ncch(filepath), overlay_ncch(&base_ncch),
-          filepath(filepath) {}
-
+          filepath(filepath) {
+        filetype = IdentifyType(this->file.get());
+        this->file.reset();
+    }
+	
     /**
      * Returns the type of the file
      * @param file FileUtil::IOFile open file
      * @return FileType found, or FileType::Error if this loader doesn't know it
      */
-    static FileType IdentifyType(FileUtil::IOFile& file);
+    static FileType IdentifyType(FileUtil::IOFile* file);
 
     FileType GetFileType() override {
-        return IdentifyType(file);
+        return filetype;
     }
 
     [[nodiscard]] std::span<const u32> GetPreferredRegions() const override {
@@ -46,6 +54,8 @@ public:
 
     std::pair<std::optional<Kernel::New3dsHwCapabilities>, ResultStatus> LoadNew3dsHwCapabilities()
         override;
+
+    bool IsN3DSExclusive() override;
 
     ResultStatus IsExecutable(bool& out_executable) override;
 
@@ -71,6 +81,14 @@ public:
 
     ResultStatus ReadTitle(std::string& title) override;
 
+    CompressFileInfo GetCompressFileInfo() override;
+
+    bool IsFileCompressed() override;
+
+    std::string GetFilePath() override {
+        return filepath;
+    }
+
 private:
     /**
      * Loads .code section into memory for booting
@@ -94,6 +112,7 @@ private:
     std::vector<u32> preferred_regions;
 
     std::string filepath;
+    FileType filetype;
 };
 
 } // namespace Loader
