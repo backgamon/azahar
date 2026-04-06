@@ -55,6 +55,7 @@
 #include "core/hle/service/sm/srv.h"
 #include "core/hle/service/soc/soc_u.h"
 #include "core/hle/service/ssl/ssl_c.h"
+#include "core/hw/unique_data.h"
 #include "core/loader/loader.h"
 
 namespace Service {
@@ -69,7 +70,7 @@ const std::array<ServiceModuleInfo, 41> service_module_map{
      {"AC", 0x00040130'00002402, AC::InstallInterfaces, false},
      {"ACT", 0x00040130'00003802, ACT::InstallInterfaces, true},
      {"AM", 0x00040130'00001502, AM::InstallInterfaces, false},
-     {"BOSS", 0x00040130'00003402, BOSS::InstallInterfaces, true},
+     {"BOSS", 0x00040130'00003402, BOSS::InstallInterfaces, false},
      {"CAM", 0x00040130'00001602,
       [](Core::System& system) {
           CAM::InstallInterfaces(system);
@@ -202,6 +203,11 @@ static bool AttemptLLE(const ServiceModuleInfo& service_module, u64 loading_titl
         Common::Hacks::HackType::ONLINE_LLE_REQUIRED, loading_titleid,
         Settings::values.enable_required_online_lle_modules.GetValue());
 
+	if(!HW::UniqueData::IsFullConsoleLinked()){
+		LOG_ERROR(Service, "Service module \"{}\" ignored because !IsFullConsoleLinked()", service_module.name);
+		return false;
+	}
+	
     if (!Settings::values.lle_modules.at(service_module.name) &&
         (!enable_recommended_lle_modules || !service_module.is_online_recommended))
         return false;
