@@ -25,6 +25,7 @@ namespace HW::UniqueData {
 
 static SecureInfoA secure_info_a;
 static bool secure_info_a_signature_valid = false;
+static bool secure_info_a_region_changed = false;
 static LocalFriendCodeSeedB local_friend_code_seed_b;
 static bool local_friend_code_seed_b_signature_valid = false;
 static FileSys::OTP otp;
@@ -33,15 +34,19 @@ static MovableSedFull movable;
 static bool movable_signature_valid = false;
 
 bool SecureInfoA::VerifySignature() const {
-	return true;
-    return HW::RSA::GetSecureInfoSlot().Verify(
-        std::span<const u8>(reinterpret_cast<const u8*>(&body), sizeof(body)), signature);
+    return true;
+    auto sec_info_slot = HW::RSA::GetSecureInfoSlot();
+    return sec_info_slot &&
+           sec_info_slot.Verify(
+               std::span<const u8>(reinterpret_cast<const u8*>(&body), sizeof(body)), signature);
 }
 
 bool LocalFriendCodeSeedB::VerifySignature() const {
-	return true;
-    return HW::RSA::GetLocalFriendCodeSeedSlot().Verify(
-        std::span<const u8>(reinterpret_cast<const u8*>(&body), sizeof(body)), signature);
+    return true;
+    auto lfcs_slot = HW::RSA::GetLocalFriendCodeSeedSlot();
+    return lfcs_slot &&
+           HW::RSA::GetLocalFriendCodeSeedSlot().Verify(
+               std::span<const u8>(reinterpret_cast<const u8*>(&body), sizeof(body)), signature);
 }
 
 bool MovableSed::VerifySignature() const {
@@ -51,8 +56,13 @@ bool MovableSed::VerifySignature() const {
 
 SecureDataLoadStatus LoadSecureInfoA() {
     if (secure_info_a.IsValid()) {
-        return secure_info_a_signature_valid ? SecureDataLoadStatus::Loaded
-                                             : SecureDataLoadStatus::InvalidSignature;
+        if (!HW::RSA::GetSecureInfoSlot()) {
+            return SecureDataLoadStatus::CannotValidateSignature;
+        }
+        return secure_info_a_signature_valid
+                   ? SecureDataLoadStatus::Loaded
+                   : (secure_info_a_region_changed ? SecureDataLoadStatus::RegionChanged
+                                                   : SecureDataLoadStatus::InvalidSignature);
     }
     std::string file_path = GetSecureInfoAPath();
     if (!FileUtil::Exists(file_path)) {
@@ -70,18 +80,42 @@ SecureDataLoadStatus LoadSecureInfoA() {
         return SecureDataLoadStatus::IOError;
     }
 
+    secure_info_a_region_changed = false;
     HW::AES::InitKeys();
+    if (!HW::RSA::GetSecureInfoSlot()) {
+        return SecureDataLoadStatus::CannotValidateSignature;
+    }
     secure_info_a_signature_valid = secure_info_a.VerifySignature();
     if (!secure_info_a_signature_valid) {
-        LOG_WARNING(HW, "SecureInfo_A signature check failed");
+        // Check if the file has been region changed
+        SecureInfoA copy = secure_info_a;
+        for (u8 orig_reg = 0; orig_reg < Region::COUNT; orig_reg++) {
+            if (orig_reg == secure_info_a.body.region) {
+                continue;
+            }
+            copy.body.region = orig_reg;
+            if (copy.VerifySignature()) {
+                secure_info_a_region_changed = true;
+                LOG_WARNING(HW, "SecureInfo_A is region changed and its signature invalid");
+                break;
+            }
+        }
+        if (!secure_info_a_region_changed) {
+            LOG_WARNING(HW, "SecureInfo_A signature check failed");
+        }
     }
 
-    return secure_info_a_signature_valid ? SecureDataLoadStatus::Loaded
-                                         : SecureDataLoadStatus::InvalidSignature;
+    return secure_info_a_signature_valid
+               ? SecureDataLoadStatus::Loaded
+               : (secure_info_a_region_changed ? SecureDataLoadStatus::RegionChanged
+                                               : SecureDataLoadStatus::InvalidSignature);
 }
 
 SecureDataLoadStatus LoadLocalFriendCodeSeedB() {
     if (local_friend_code_seed_b.IsValid()) {
+        if (!HW::RSA::GetLocalFriendCodeSeedSlot()) {
+            return SecureDataLoadStatus::CannotValidateSignature;
+        }
         return local_friend_code_seed_b_signature_valid ? SecureDataLoadStatus::Loaded
                                                         : SecureDataLoadStatus::InvalidSignature;
     }
@@ -103,6 +137,9 @@ SecureDataLoadStatus LoadLocalFriendCodeSeedB() {
     }
 
     HW::AES::InitKeys();
+    if (!HW::RSA::GetLocalFriendCodeSeedSlot()) {
+        return SecureDataLoadStatus::CannotValidateSignature;
+    }
     local_friend_code_seed_b_signature_valid = local_friend_code_seed_b.VerifySignature();
     if (!local_friend_code_seed_b_signature_valid) {
         LOG_WARNING(HW, "LocalFriendCodeSeed_B signature check failed");
@@ -117,10 +154,17 @@ SecureDataLoadStatus LoadOTP() {
         return SecureDataLoadStatus::Loaded;
     }
 
+    auto is_all_zero = [](const auto& arr) {
+        return std::all_of(arr.begin(), arr.end(), [](auto x) { return x == 0; });
+    };
+
     const std::string filepath = GetOTPPath();
 
     HW::AES::InitKeys();
     auto otp_keyiv = HW::AES::GetOTPKeyIV();
+    if (is_all_zero(otp_keyiv.first) || is_all_zero(otp_keyiv.second)) {
+        return SecureDataLoadStatus::NoCryptoKeys;
+    }
 
     auto loader_status = otp.Load(filepath, otp_keyiv.first, otp_keyiv.second);
     if (loader_status != Loader::ResultStatus::Success) {
@@ -158,6 +202,9 @@ SecureDataLoadStatus LoadOTP() {
 
 SecureDataLoadStatus LoadMovable() {
     if (movable.IsValid()) {
+        if (!HW::RSA::GetLocalFriendCodeSeedSlot()) {
+            return SecureDataLoadStatus::CannotValidateSignature;
+        }
         return movable_signature_valid ? SecureDataLoadStatus::Loaded
                                        : SecureDataLoadStatus::InvalidSignature;
     }
@@ -182,6 +229,9 @@ SecureDataLoadStatus LoadMovable() {
     }
 
     HW::AES::InitKeys();
+    if (!HW::RSA::GetLocalFriendCodeSeedSlot()) {
+        return SecureDataLoadStatus::CannotValidateSignature;
+    }
     movable_signature_valid = movable.VerifySignature();
     if (!movable_signature_valid) {
         LOG_WARNING(HW, "movable.sed signature check failed");
