@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
+<!-- FILE MODIFIED BY AzaharPlus APRIL 2025 -->
 <ui version="4.0">
  <class>MainWindow</class>
  <widget class="QMainWindow" name="MainWindow">
@@ -52,6 +53,18 @@
     <property name="title">
      <string>File</string>
     </property>
+    <widget class="QMenu" name="menu_Download_System_Files">
+     <property name="title">
+      <string>Download System Files</string>
+     </property>
+     <addaction name="action_Download_System_Files_JPN"/>
+     <addaction name="action_Download_System_Files_USA"/>
+     <addaction name="action_Download_System_Files_EUR"/>
+     <addaction name="action_Download_System_Files_AUS"/>
+     <addaction name="action_Download_System_Files_CHN"/>
+     <addaction name="action_Download_System_Files_KOR"/>
+     <addaction name="action_Download_System_Files_TWN"/>
+    </widget>
     <widget class="QMenu" name="menu_Boot_Home_Menu">
      <property name="title">
       <string>Boot Home Menu</string>
@@ -69,6 +82,14 @@
       <string>Recent Files</string>
      </property>
     </widget>
+    <widget class="QMenu" name="menu_ZipPass">
+     <property name="title">
+      <string>ZipPass</string>
+     </property>
+     <addaction name="action_Export_ZipPass"/>
+     <addaction name="action_Import_ZipPass"/>
+     <addaction name="action_Clear_StreetPass_Config"/>
+    </widget>
     <widget class="QMenu" name="menu_Amiibo">
      <property name="title">
       <string>Amiibo</string>
@@ -80,11 +101,16 @@
     <addaction name="action_Install_CIA"/>
     <addaction name="action_Connect_Artic"/>
     <addaction name="separator"/>
+    <addaction name="action_Remove_Azahar_Encryption"/>
+    <addaction name="action_Revert_Encryption_Removal"/>
+    <addaction name="separator"/>
+    <addaction name="menu_Download_System_Files"/>
     <addaction name="action_Setup_System_Files"/>
     <addaction name="menu_Boot_Home_Menu"/>
     <addaction name="separator"/>
     <addaction name="menu_recent_files"/>
     <addaction name="separator"/>
+    <addaction name="menu_ZipPass"/>
     <addaction name="menu_Amiibo"/>
     <addaction name="separator"/>
     <addaction name="action_Open_Citra_Folder"/>
@@ -100,6 +126,7 @@
       <string>Save State</string>
      </property>
      <addaction name="action_Save_to_Oldest_Slot"/>
+     <addaction name="action_Quick_Save"/>
      <addaction name="separator"/>
     </widget>
     <widget class="QMenu" name="menu_Load_State">
@@ -107,6 +134,7 @@
       <string>Load State</string>
      </property>
      <addaction name="action_Load_from_Newest_Slot"/>
+     <addaction name="action_Quick_Load"/>
      <addaction name="separator"/>
     </widget>
     <addaction name="action_Pause"/>
@@ -204,8 +232,21 @@
     <addaction name="action_Advance_Frame"/>
     <addaction name="menu_Movie"/>
     <addaction name="separator"/>
+    <widget class="QMenu" name="menu_Debug">
+     <property name="title">
+      <string>Debug</string>
+     </property>
+     <addaction name="action_Debug_Pause"/>
+     <addaction name="action_Debug_Resume"/>
+     <addaction name="action_Debug_Step"/>
+    </widget>
+     <addaction name="menu_Debug"/>
+    <addaction name="separator"/>
     <addaction name="action_Capture_Screenshot"/>
     <addaction name="action_Dump_Video"/>
+    <addaction name="separator"/>
+    <addaction name="action_Compress_ROM_File"/>
+    <addaction name="action_Decompress_ROM_File"/>
    </widget>
    <widget class="QMenu" name="menu_Help">
     <property name="title">
@@ -216,6 +257,7 @@
     <addaction name="separator"/>
     <addaction name="action_Open_Log_Folder"/>
     <addaction name="action_FAQ"/>
+    <addaction name="action_libzip"/>
     <addaction name="action_About"/>
    </widget>
    <addaction name="menu_File"/>
@@ -239,6 +281,51 @@
     <property name="text">
       <string>Connect to Artic Base...</string>
     </property>
+  </action>
+  <action name="action_Remove_Azahar_Encryption">
+    <property name="text">
+      <string>Remove Azahar Encryption</string>
+    </property>
+  </action>
+  <action name="action_Revert_Encryption_Removal">
+    <property name="text">
+      <string>Revert Encryption Removal</string>
+    </property>
+  </action>
+  <action name="action_Download_System_Files_JPN">
+   <property name="text">
+    <string>JPN</string>
+   </property>
+  </action>
+  <action name="action_Download_System_Files_USA">
+   <property name="text">
+    <string>USA</string>
+   </property>
+  </action>
+  <action name="action_Download_System_Files_EUR">
+   <property name="text">
+    <string>EUR</string>
+   </property>
+  </action>
+  <action name="action_Download_System_Files_AUS">
+   <property name="text">
+    <string>AUS</string>
+   </property>
+  </action>
+  <action name="action_Download_System_Files_CHN">
+   <property name="text">
+    <string>CHN</string>
+   </property>
+  </action>
+  <action name="action_Download_System_Files_KOR">
+   <property name="text">
+    <string>KOR</string>
+   </property>
+  </action>
+  <action name="action_Download_System_Files_TWN">
+   <property name="text">
+    <string>TWN</string>
+   </property>
   </action>
   <action name="action_Setup_System_Files">
     <property name="text">
@@ -322,6 +409,11 @@
     <string>FAQ</string>
    </property>
   </action>
+  <action name="action_libzip">
+   <property name="text">
+    <string>libzip licence</string>
+   </property>
+  </action>
   <action name="action_About">
    <property name="text">
     <string>About Azahar</string>
@@ -343,9 +435,19 @@
     <string>Save to Oldest Slot</string>
    </property>
   </action>
+  <action name="action_Quick_Save">
+   <property name="text">
+    <string>Quick Save</string>
+   </property>
+  </action>
   <action name="action_Load_from_Newest_Slot">
    <property name="text">
     <string>Load from Newest Slot</string>
+   </property>
+  </action>
+  <action name="action_Quick_Load">
+   <property name="text">
+    <string>Quick Load</string>
    </property>
   </action>
   <action name="action_Configure">
@@ -438,12 +540,46 @@
     <string>Capture Screenshot</string>
    </property>
   </action>
+  <action name="action_Debug_Pause">
+   <property name="enabled">
+    <bool>true</bool>
+   </property>
+   <property name="text">
+    <string>Debug Pause</string>
+   </property>
+  </action>
+  <action name="action_Debug_Resume">
+   <property name="enabled">
+    <bool>true</bool>
+   </property>
+   <property name="text">
+    <string>Debug Resume</string>
+   </property>
+  </action>
+  <action name="action_Debug_Step">
+   <property name="enabled">
+    <bool>true</bool>
+   </property>
+   <property name="text">
+    <string>Debug Step</string>
+   </property>
+  </action>
   <action name="action_Dump_Video">
    <property name="checkable">
     <bool>true</bool>
    </property>
    <property name="text">
     <string>Dump Video</string>
+   </property>
+  </action>
+  <action name="action_Compress_ROM_File">
+   <property name="text">
+    <string>Compress ROM File...</string>
+   </property>
+  </action>
+  <action name="action_Decompress_ROM_File">
+   <property name="text">
+    <string>Decompress ROM File...</string>
    </property>
   </action>
   <action name="action_View_Lobby">
@@ -646,6 +782,21 @@
    </property>
    <property name="text">
     <string>Restart</string>
+   </property>
+  </action>
+  <action name="action_Export_ZipPass">
+   <property name="text">
+    <string>Export ZipPass Data</string>
+   </property>
+  </action>
+  <action name="action_Import_ZipPass">
+   <property name="text">
+    <string>Import ZipPass Data</string>
+   </property>
+  </action>
+  <action name="action_Clear_StreetPass_Config">
+   <property name="text">
+    <string>Clear StreetPass Configuration</string>
    </property>
   </action>
   <action name="action_Load_Amiibo">

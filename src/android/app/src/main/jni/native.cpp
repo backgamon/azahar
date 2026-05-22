@@ -1,3 +1,5 @@
+//FILE MODIFIED BY AzaharPlus APRIL 2025
+
 // Copyright Citra Emulator Project / Azahar Emulator Project
 // Licensed under GPLv2 or any later version
 // Refer to the license.txt file included.
@@ -16,29 +18,35 @@
 #include <core/hle/service/cfg/cfg.h>
 #include "audio_core/dsp_interface.h"
 #include "common/arch.h"
+
 #if CITRA_ARCH(arm64)
 #include "common/aarch64/cpu_detect.h"
 #elif CITRA_ARCH(x86_64)
 #include "common/x64/cpu_detect.h"
 #endif
+
 #include "common/common_paths.h"
 #include "common/dynamic_library/dynamic_library.h"
 #include "common/file_util.h"
 #include "common/logging/backend.h"
 #include "common/logging/log.h"
 #include "common/microprofile.h"
+#include "common/play_time_manager.h"
 #include "common/scm_rev.h"
 #include "common/scope_exit.h"
 #include "common/settings.h"
 #include "common/string_util.h"
+#include "common/zstd_compression.h"
 #include "core/core.h"
 #include "core/frontend/applets/default_applets.h"
 #include "core/frontend/camera/factory.h"
 #include "core/hle/service/am/am.h"
+#include "core/hle/service/fs/archive.h"
 #include "core/hle/service/nfc/nfc.h"
 #include "core/hw/unique_data.h"
 #include "core/loader/loader.h"
 #include "core/savestate.h"
+#include "core/zip_pass.h"
 #include "core/system_titles.h"
 #include "jni/android_common/android_common.h"
 #include "jni/applets/mii_selector.h"
@@ -46,12 +54,18 @@
 #include "jni/camera/ndk_camera.h"
 #include "jni/camera/still_image_camera.h"
 #include "jni/config.h"
+
 #ifdef ENABLE_OPENGL
 #include "jni/emu_window/emu_window_gl.h"
 #endif
+
 #ifdef ENABLE_VULKAN
 #include "jni/emu_window/emu_window_vk.h"
+#if CITRA_ARCH(arm64)
+#include <adrenotools/driver.h>
 #endif
+#endif
+
 #include "jni/id_cache.h"
 #include "jni/input_manager.h"
 #include "jni/ndk_motion.h"
@@ -60,16 +74,28 @@
 #include "video_core/gpu.h"
 #include "video_core/renderer_base.h"
 
-#if defined(ENABLE_VULKAN) && CITRA_ARCH(arm64)
-#include <adrenotools/driver.h>
-#endif
-
 namespace {
 
-ANativeWindow* s_surf;
+ANativeWindow* s_surface;
+ANativeWindow* s_secondary_surface;
+
+enum class CompressionStatus : jint {
+    Success = 0,
+    Compress_Unsupported = 1,
+    Compress_AlreadyCompressed = 2,
+    Compress_Failed = 3,
+    Decompress_Unsupported = 4,
+    Decompress_NotCompressed = 5,
+    Decompress_Failed = 6,
+    Installed_Application = 7,
+};
 
 std::shared_ptr<Common::DynamicLibrary> vulkan_library{};
 std::unique_ptr<EmuWindow_Android> window;
+std::unique_ptr<EmuWindow_Android> secondary_window;
+
+std::unique_ptr<PlayTime::PlayTimeManager> play_time_manager;
+jlong ptm_current_title_id = std::numeric_limits<jlong>::max(); // Arbitrary default value
 
 std::atomic<bool> stop_run{true};
 std::atomic<bool> pause_emulation{false};
@@ -78,6 +104,8 @@ std::mutex paused_mutex;
 std::mutex running_mutex;
 std::condition_variable running_cv;
 
+std::string inserted_cartridge;
+
 } // Anonymous namespace
 
 static jobject ToJavaCoreError(Core::System::ResultStatus result) {
@@ -85,6 +113,7 @@ static jobject ToJavaCoreError(Core::System::ResultStatus result) {
         {Core::System::ResultStatus::ErrorSystemFiles, "ErrorSystemFiles"},
         {Core::System::ResultStatus::ErrorSavestate, "ErrorSavestate"},
         {Core::System::ResultStatus::ErrorArticDisconnected, "ErrorArticDisconnected"},
+        {Core::System::ResultStatus::ErrorN3DSApplication, "ErrorN3DSApplication"},
         {Core::System::ResultStatus::ErrorUnknown, "ErrorUnknown"},
     };
 
@@ -104,12 +133,13 @@ static bool HandleCoreError(Core::System::ResultStatus result, const std::string
                                         env->NewStringUTF(details.c_str())) != JNI_FALSE;
 }
 
-static void LoadDiskCacheProgress(VideoCore::LoadCallbackStage stage, int progress, int max) {
+static void LoadDiskCacheProgress(VideoCore::LoadCallbackStage stage, int progress, int max,
+                                  const std::string& object) {
     JNIEnv* env = IDCache::GetEnvForThread();
     env->CallStaticVoidMethod(IDCache::GetDiskCacheProgressClass(),
                               IDCache::GetDiskCacheLoadProgress(),
                               IDCache::GetJavaLoadCallbackStage(stage), static_cast<jint>(progress),
-                              static_cast<jint>(max));
+                              static_cast<jint>(max), env->NewStringUTF(object.c_str()));
 }
 
 static Camera::NDK::Factory* g_ndk_factory{};
@@ -120,8 +150,20 @@ static void TryShutdown() {
     }
 
     window->DoneCurrent();
-    Core::System::GetInstance().Shutdown();
+    if (secondary_window) {
+        secondary_window->DoneCurrent();
+    }
+
+    Core::System& system{Core::System::GetInstance()};
+
+    system.Shutdown();
+    system.EjectCartridge();
+
     window.reset();
+    if (secondary_window) {
+        secondary_window.reset();
+    }
+
     InputManager::Shutdown();
     MicroProfileShutdown();
 }
@@ -146,16 +188,26 @@ static Core::System::ResultStatus RunCitra(const std::string& filepath) {
 
     Core::System& system{Core::System::GetInstance()};
 
+    if (!inserted_cartridge.empty()) {
+        system.InsertCartridge(inserted_cartridge);
+    }
+
     const auto graphics_api = Settings::values.graphics_api.GetValue();
+    EGLContext* shared_context;
     switch (graphics_api) {
 #ifdef ENABLE_OPENGL
     case Settings::GraphicsAPI::OpenGL:
-        window = std::make_unique<EmuWindow_Android_OpenGL>(system, s_surf);
+        window = std::make_unique<EmuWindow_Android_OpenGL>(system, s_surface, false);
+        shared_context = window->GetEGLContext();
+        secondary_window = std::make_unique<EmuWindow_Android_OpenGL>(system, s_secondary_surface,
+                                                                      true, shared_context);
         break;
 #endif
 #ifdef ENABLE_VULKAN
     case Settings::GraphicsAPI::Vulkan:
-        window = std::make_unique<EmuWindow_Android_Vulkan>(s_surf, vulkan_library);
+        window = std::make_unique<EmuWindow_Android_Vulkan>(s_surface, vulkan_library, false);
+        secondary_window =
+            std::make_unique<EmuWindow_Android_Vulkan>(s_secondary_surface, vulkan_library, true);
         break;
 #endif
     default:
@@ -163,11 +215,17 @@ static Core::System::ResultStatus RunCitra(const std::string& filepath) {
                      "Unknown or unsupported graphics API {}, falling back to available default",
                      graphics_api);
 #ifdef ENABLE_OPENGL
-        window = std::make_unique<EmuWindow_Android_OpenGL>(system, s_surf);
+        window = std::make_unique<EmuWindow_Android_OpenGL>(system, s_surface, false);
+        shared_context = window->GetEGLContext();
+        secondary_window = std::make_unique<EmuWindow_Android_OpenGL>(system, s_secondary_surface,
+                                                                      true, shared_context);
+
 #elif ENABLE_VULKAN
-        window = std::make_unique<EmuWindow_Android_Vulkan>(s_surf, vulkan_library);
+        window = std::make_unique<EmuWindow_Android_Vulkan>(s_surface, vulkan_library, false);
+        secondary_window =
+            std::make_unique<EmuWindow_Android_Vulkan>(s_secondary_surface, vulkan_library, true);
 #else
-// TODO: Add a null renderer backend for this, perhaps.
+        // TODO: Add a null renderer backend for this, perhaps.
 #error "At least one renderer must be enabled."
 #endif
         break;
@@ -204,7 +262,8 @@ static Core::System::ResultStatus RunCitra(const std::string& filepath) {
     InputManager::Init();
 
     window->MakeCurrent();
-    const Core::System::ResultStatus load_result{system.Load(*window, filepath)};
+    const Core::System::ResultStatus load_result{
+        system.Load(*window, filepath, secondary_window.get())};
     if (load_result != Core::System::ResultStatus::Success) {
         return load_result;
     }
@@ -212,12 +271,15 @@ static Core::System::ResultStatus RunCitra(const std::string& filepath) {
     stop_run = false;
     pause_emulation = false;
 
-    LoadDiskCacheProgress(VideoCore::LoadCallbackStage::Prepare, 0, 0);
+    LoadDiskCacheProgress(VideoCore::LoadCallbackStage::Prepare, 0, 0, "");
+
+    system.GPU().ApplyPerProgramSettings(program_id);
 
     std::unique_ptr<Frontend::GraphicsContext> cpu_context;
-    system.GPU().Renderer().Rasterizer()->LoadDiskResources(stop_run, &LoadDiskCacheProgress);
+    system.GPU().Renderer().Rasterizer()->LoadDefaultDiskResources(stop_run,
+                                                                   &LoadDiskCacheProgress);
 
-    LoadDiskCacheProgress(VideoCore::LoadCallbackStage::Complete, 0, 0);
+    LoadDiskCacheProgress(VideoCore::LoadCallbackStage::Complete, 0, 0, "");
 
     SCOPE_EXIT({ TryShutdown(); });
 
@@ -299,28 +361,68 @@ extern "C" {
 void Java_org_citra_citra_1emu_NativeLibrary_surfaceChanged(JNIEnv* env,
                                                             [[maybe_unused]] jobject obj,
                                                             jobject surf) {
-    s_surf = ANativeWindow_fromSurface(env, surf);
+    s_surface = ANativeWindow_fromSurface(env, surf);
 
     bool notify = false;
     if (window) {
-        notify = window->OnSurfaceChanged(s_surf);
+        notify = window->OnSurfaceChanged(s_surface);
     }
 
     auto& system = Core::System::GetInstance();
     if (notify && system.IsPoweredOn()) {
-        system.GPU().Renderer().NotifySurfaceChanged();
+        system.GPU().Renderer().NotifySurfaceChanged(false);
     }
 
     LOG_INFO(Frontend, "Surface changed");
 }
 
+void Java_org_citra_citra_1emu_NativeLibrary_secondarySurfaceChanged(JNIEnv* env,
+                                                                     [[maybe_unused]] jobject obj,
+                                                                     jobject surf) {
+    auto& system = Core::System::GetInstance();
+
+    if (s_secondary_surface) {
+        ANativeWindow_release(s_secondary_surface);
+        s_secondary_surface = nullptr;
+    }
+    s_secondary_surface = ANativeWindow_fromSurface(env, surf);
+    if (!s_secondary_surface) {
+        return;
+    }
+
+    bool notify = false;
+    if (secondary_window) {
+        // Second window already created, so update it
+        notify = secondary_window->OnSurfaceChanged(s_secondary_surface);
+    } else {
+        LOG_WARNING(Frontend,
+                    "Second Window does not exist in native.cpp but surface changed. Ignoring.");
+    }
+
+    if (notify && system.IsPoweredOn()) {
+        system.GPU().Renderer().NotifySurfaceChanged(true);
+    }
+
+    LOG_INFO(Frontend, "Secondary Surface changed");
+}
+
+void Java_org_citra_citra_1emu_NativeLibrary_secondarySurfaceDestroyed(
+    JNIEnv* env, [[maybe_unused]] jobject obj) {
+    if (s_secondary_surface != nullptr) {
+        ANativeWindow_release(s_secondary_surface);
+        s_secondary_surface = nullptr;
+    }
+
+    LOG_INFO(Frontend, "Secondary Surface Destroyed");
+}
+
 void Java_org_citra_citra_1emu_NativeLibrary_surfaceDestroyed([[maybe_unused]] JNIEnv* env,
                                                               [[maybe_unused]] jobject obj) {
-    if (s_surf != nullptr) {
-        ANativeWindow_release(s_surf);
-        s_surf = nullptr;
+    if (s_surface != nullptr) {
+        ANativeWindow_release(s_surface);
+        s_surface = nullptr;
         if (window) {
-            window->OnSurfaceChanged(s_surf);
+            window->OnSurfaceChanged(s_surface);
         }
     }
 }
@@ -332,6 +434,9 @@ void Java_org_citra_citra_1emu_NativeLibrary_doFrame([[maybe_unused]] JNIEnv* en
     }
     if (window) {
         window->TryPresenting();
+    }
+    if (secondary_window) {
+        secondary_window->TryPresenting();
     }
 }
 
@@ -387,40 +492,201 @@ jstring Java_org_citra_citra_1emu_NativeLibrary_getHomeMenuPath(JNIEnv* env,
     return ToJString(env, "");
 }
 
+static CompressionStatus GetCompressFileInfo(Loader::AppLoader::CompressFileInfo& out_info,
+                                             size_t& out_frame_size, const std::string& filepath,
+                                             bool compress) {
+
+    if (Service::FS::IsInstalledApplication(filepath)) {
+        return CompressionStatus::Installed_Application;
+    }
+
+    Loader::AppLoader::CompressFileInfo compress_info{};
+    compress_info.is_supported = false;
+    size_t frame_size{};
+    auto loader = Loader::GetLoader(filepath);
+    if (loader) {
+        compress_info = loader->GetCompressFileInfo();
+        frame_size = FileUtil::Z3DSWriteIOFile::DEFAULT_FRAME_SIZE;
+    } else {
+        bool is_compressed = false;
+        if (Service::AM::CheckCIAToInstall(filepath, is_compressed, compress ? true : false) ==
+            Service::AM::InstallStatus::Success) {
+            compress_info.is_supported = true;
+            compress_info.is_compressed = is_compressed;
+            compress_info.recommended_compressed_extension = "zcia";
+            compress_info.recommended_uncompressed_extension = "cia";
+            compress_info.underlying_magic = std::array<u8, 4>({'C', 'I', 'A', '\0'});
+            frame_size = FileUtil::Z3DSWriteIOFile::DEFAULT_CIA_FRAME_SIZE;
+            if (compress) {
+                auto meta_info = Service::AM::GetCIAInfos(filepath);
+                if (meta_info.Succeeded()) {
+                    const auto& meta_info_val = meta_info.Unwrap();
+                    std::vector<u8> value(sizeof(Service::AM::TitleInfo));
+                    memcpy(value.data(), &meta_info_val.first, sizeof(Service::AM::TitleInfo));
+                    compress_info.default_metadata.emplace("titleinfo", value);
+                    if (meta_info_val.second) {
+                        value.resize(sizeof(Loader::SMDH));
+                        memcpy(value.data(), meta_info_val.second.get(), sizeof(Loader::SMDH));
+                        compress_info.default_metadata.emplace("smdh", value);
+                    }
+                }
+            }
+        }
+    }
+
+    if (!compress_info.is_supported) {
+        LOG_ERROR(Frontend,
+                  "Error {} file {}, the selected file is not a compatible 3DS ROM format or is "
+                  "encrypted.",
+                  compress ? "compressing" : "decompressing", filepath);
+        return compress ? CompressionStatus::Compress_Unsupported
+                        : CompressionStatus::Decompress_Unsupported;
+    }
+    if (compress_info.is_compressed && compress) {
+        LOG_ERROR(Frontend, "Error compressing file {}, the selected file is already compressed",
+                  filepath);
+        return CompressionStatus::Compress_AlreadyCompressed;
+    }
+    if (!compress_info.is_compressed && !compress) {
+        LOG_ERROR(Frontend,
+                  "Error decompressing file {}, the selected file is already decompressed",
+                  filepath);
+        return CompressionStatus::Decompress_NotCompressed;
+    }
+
+    out_info = compress_info;
+    out_frame_size = frame_size;
+    return CompressionStatus::Success;
+}
+
+jint Java_org_citra_citra_1emu_NativeLibrary_compressFileNative(JNIEnv* env, jobject obj,
+                                                                jstring j_input_path,
+                                                                jstring j_output_path) {
+    const std::string input_path = GetJString(env, j_input_path);
+    const std::string output_path = GetJString(env, j_output_path);
+
+    Loader::AppLoader::CompressFileInfo compress_info{};
+    size_t frame_size{};
+    CompressionStatus stat = GetCompressFileInfo(compress_info, frame_size, input_path, true);
+    if (stat != CompressionStatus::Success) {
+        return static_cast<jint>(stat);
+    }
+
+    auto progress = [](std::size_t processed, std::size_t total) {
+        JNIEnv* env = IDCache::GetEnvForThread();
+        env->CallStaticVoidMethod(IDCache::GetNativeLibraryClass(),
+                                  IDCache::GetCompressProgressMethod(), static_cast<jlong>(total),
+                                  static_cast<jlong>(processed));
+    };
+
+    bool success =
+        FileUtil::CompressZ3DSFile(input_path, output_path, compress_info.underlying_magic,
+                                   frame_size, progress, compress_info.default_metadata);
+    if (!success) {
+        FileUtil::Delete(output_path);
+        return static_cast<jint>(CompressionStatus::Compress_Failed);
+    }
+
+    return static_cast<jint>(CompressionStatus::Success);
+}
+
+jint Java_org_citra_citra_1emu_NativeLibrary_decompressFileNative(JNIEnv* env, jobject obj,
+                                                                  jstring j_input_path,
+                                                                  jstring j_output_path) {
+    const std::string input_path = GetJString(env, j_input_path);
+    const std::string output_path = GetJString(env, j_output_path);
+
+    Loader::AppLoader::CompressFileInfo compress_info{};
+    size_t frame_size{};
+    CompressionStatus stat = GetCompressFileInfo(compress_info, frame_size, input_path, false);
+    if (stat != CompressionStatus::Success) {
+        return static_cast<jint>(stat);
+    }
+
+    auto progress = [](std::size_t processed, std::size_t total) {
+        JNIEnv* env = IDCache::GetEnvForThread();
+        env->CallStaticVoidMethod(IDCache::GetNativeLibraryClass(),
+                                  IDCache::GetCompressProgressMethod(), static_cast<jlong>(total),
+                                  static_cast<jlong>(processed));
+    };
+
+    bool success = FileUtil::DeCompressZ3DSFile(input_path, output_path, progress);
+    if (!success) {
+        FileUtil::Delete(output_path);
+        return static_cast<jint>(CompressionStatus::Decompress_Failed);
+    }
+
+    return static_cast<jint>(CompressionStatus::Success);
+}
+
+jstring Java_org_citra_citra_1emu_NativeLibrary_getRecommendedExtension(
+    JNIEnv* env, jobject obj, jstring j_input_path, jboolean j_should_compress) {
+    const std::string input_path = GetJString(env, j_input_path);
+
+    std::string compressed_ext;
+    std::string uncompressed_ext;
+
+    auto loader = Loader::GetLoader(input_path);
+    if (loader) {
+        auto compress_info = loader->GetCompressFileInfo();
+        if (compress_info.is_supported) {
+            compressed_ext = compress_info.recommended_compressed_extension;
+            uncompressed_ext = compress_info.recommended_uncompressed_extension;
+        }
+    } else {
+        bool is_compressed = false;
+        if (Service::AM::CheckCIAToInstall(input_path, is_compressed, true) ==
+            Service::AM::InstallStatus::Success) {
+            compressed_ext = "zcia";
+            uncompressed_ext = "cia";
+        }
+    }
+
+    if (compressed_ext.empty()) {
+        return env->NewStringUTF("");
+    }
+
+    return env->NewStringUTF(j_should_compress ? compressed_ext.c_str() : uncompressed_ext.c_str());
+}
+
 void Java_org_citra_citra_1emu_NativeLibrary_setUserDirectory(JNIEnv* env,
                                                               [[maybe_unused]] jobject obj,
                                                               jstring j_directory) {
     FileUtil::SetCurrentDir(GetJString(env, j_directory));
 }
 
-jobjectArray Java_org_citra_citra_1emu_NativeLibrary_getInstalledGamePaths(
+jobjectArray Java_org_citra_citra_1emu_NativeLibrary_getInstalledGamePathsImpl(
     JNIEnv* env, [[maybe_unused]] jclass clazz) {
     std::vector<std::string> games;
-    const FileUtil::DirectoryEntryCallable ScanDir =
-        [&games, &ScanDir](u64*, const std::string& directory, const std::string& virtual_name) {
-            std::string path = directory + virtual_name;
-            if (FileUtil::IsDirectory(path)) {
-                path += '/';
-                FileUtil::ForeachDirectoryEntry(nullptr, path, ScanDir);
-            } else {
-                if (!FileUtil::Exists(path))
-                    return false;
-                auto loader = Loader::GetLoader(path);
-                if (loader) {
-                    bool executable{};
-                    const Loader::ResultStatus result = loader->IsExecutable(executable);
-                    if (Loader::ResultStatus::Success == result && executable) {
-                        games.emplace_back(path);
-                    }
+    Service::FS::MediaType media_type;
+    const FileUtil::DirectoryEntryCallable ScanDir = [&games, &ScanDir, &media_type](
+                                                         u64*, const std::string& directory,
+                                                         const std::string& virtual_name) {
+        std::string path = directory + virtual_name;
+        if (FileUtil::IsDirectory(path)) {
+            path += '/';
+            FileUtil::ForeachDirectoryEntry(nullptr, path, ScanDir);
+        } else {
+            if (!FileUtil::Exists(path))
+                return false;
+            auto loader = Loader::GetLoader(path);
+            if (loader) {
+                bool executable{};
+                const Loader::ResultStatus result = loader->IsExecutable(executable);
+                if (Loader::ResultStatus::Success == result && executable) {
+                    games.emplace_back(path + "|" + std::to_string(static_cast<int>(media_type)));
                 }
             }
-            return true;
-        };
+        }
+        return true;
+    };
+    media_type = Service::FS::MediaType::SDMC;
     ScanDir(nullptr, "",
             FileUtil::GetUserPath(FileUtil::UserPath::SDMCDir) +
                 "Nintendo "
                 "3DS/00000000000000000000000000000000/"
                 "00000000000000000000000000000000/title/00040000");
+    media_type = Service::FS::MediaType::NAND;
     ScanDir(nullptr, "",
             FileUtil::GetUserPath(FileUtil::UserPath::NANDDir) +
                 "00000000000000000000000000000000/title/00040010");
@@ -475,6 +741,18 @@ jobject Java_org_citra_citra_1emu_NativeLibrary_downloadTitleFromNus([[maybe_unu
     return IDCache::GetJavaCiaInstallStatus(Service::AM::InstallStatus::Success);
 }
 
+jint Java_org_citra_citra_1emu_NativeLibrary_importZipPass(JNIEnv *env, jobject thiz, jstring path) {
+    return Core::importZipPass(GetJString(env, path));
+}
+
+jint Java_org_citra_citra_1emu_NativeLibrary_exportZipPass(JNIEnv *env, jobject thiz, jstring path) {
+    return Core::exportZipPass(GetJString(env, path));
+}
+
+jint Java_org_citra_citra_1emu_NativeLibrary_clearStreetPassConfig(JNIEnv *env, jobject thiz) {
+    return Core::clearStreetPassConfig();
+}
+
 [[maybe_unused]] static bool CheckKgslPresent() {
     constexpr auto KgslPath{"/dev/kgsl-3d0"};
 
@@ -520,6 +798,9 @@ void Java_org_citra_citra_1emu_NativeLibrary_stopEmulation([[maybe_unused]] JNIE
     stop_run = true;
     pause_emulation = false;
     window->StopPresenting();
+    if (secondary_window) {
+        secondary_window->StopPresenting();
+    }
     running_cv.notify_all();
 }
 
@@ -589,6 +870,25 @@ void Java_org_citra_citra_1emu_NativeLibrary_onTouchMoved([[maybe_unused]] JNIEn
     window->OnTouchMoved((int)x, (int)y);
 }
 
+jboolean Java_org_citra_citra_1emu_NativeLibrary_onSecondaryTouchEvent([[maybe_unused]] JNIEnv* env,
+                                                                       [[maybe_unused]] jobject obj,
+                                                                       jfloat x, jfloat y,
+                                                                       jboolean pressed) {
+    if (!secondary_window) {
+        return JNI_FALSE;
+    }
+    return static_cast<jboolean>(secondary_window->OnTouchEvent(
+        static_cast<int>(x + 0.5), static_cast<int>(y + 0.5), pressed));
+}
+
+void Java_org_citra_citra_1emu_NativeLibrary_onSecondaryTouchMoved([[maybe_unused]] JNIEnv* env,
+                                                                   [[maybe_unused]] jobject obj,
+                                                                   jfloat x, jfloat y) {
+    if (secondary_window) {
+        secondary_window->OnTouchMoved((int)x, (int)y);
+    }
+}
+
 jlong Java_org_citra_citra_1emu_NativeLibrary_getTitleId(JNIEnv* env, [[maybe_unused]] jobject obj,
                                                          jstring j_filename) {
     std::string filepath = GetJString(env, j_filename);
@@ -654,16 +954,19 @@ void Java_org_citra_citra_1emu_NativeLibrary_reloadSettings([[maybe_unused]] JNI
 jdoubleArray Java_org_citra_citra_1emu_NativeLibrary_getPerfStats(JNIEnv* env,
                                                                   [[maybe_unused]] jobject obj) {
     auto& core = Core::System::GetInstance();
-    jdoubleArray j_stats = env->NewDoubleArray(4);
+    jdoubleArray j_stats = env->NewDoubleArray(9);
 
     if (core.IsPoweredOn()) {
         auto results = core.GetAndResetPerfStats();
 
         // Converting the structure into an array makes it easier to pass it to the frontend
-        double stats[4] = {results.system_fps, results.game_fps, results.frametime,
-                           results.emulation_speed};
+        double stats[9] = {results.system_fps,      results.game_fps,
+                           results.emulation_speed, results.time_vblank_interval,
+                           results.time_hle_svc,    results.time_hle_ipc,
+                           results.time_gpu,        results.time_swap,
+                           results.time_remaining};
 
-        env->SetDoubleArrayRegion(j_stats, 0, 4, stats);
+        env->SetDoubleArrayRegion(j_stats, 0, 9, stats);
     }
 
     return j_stats;
@@ -790,6 +1093,107 @@ jboolean Java_org_citra_citra_1emu_NativeLibrary_isFullConsoleLinked(JNIEnv* env
 
 void Java_org_citra_citra_1emu_NativeLibrary_unlinkConsole(JNIEnv* env, jobject obj) {
     HW::UniqueData::UnlinkConsole();
+}
+
+void Java_org_citra_citra_1emu_NativeLibrary_setTemporaryFrameLimit(JNIEnv* env, jobject obj,
+                                                                    jdouble speed) {
+    Settings::temporary_frame_limit = speed;
+    Settings::is_temporary_frame_limit = true;
+}
+
+void Java_org_citra_citra_1emu_NativeLibrary_disableTemporaryFrameLimit(JNIEnv* env, jobject obj) {
+    Settings::is_temporary_frame_limit = false;
+}
+
+void Java_org_citra_citra_1emu_NativeLibrary_playTimeManagerInit(JNIEnv* env, jobject obj) {
+    play_time_manager = std::make_unique<PlayTime::PlayTimeManager>();
+}
+
+void Java_org_citra_citra_1emu_NativeLibrary_playTimeManagerStart(JNIEnv* env, jobject obj,
+                                                                  jlong title_id) {
+    ptm_current_title_id = title_id;
+    if (play_time_manager) {
+        play_time_manager->SetProgramId(static_cast<u64>(title_id));
+        play_time_manager->Start();
+    }
+}
+
+void Java_org_citra_citra_1emu_NativeLibrary_playTimeManagerStop(JNIEnv* env, jobject obj) {
+    play_time_manager->Stop();
+}
+
+jlong Java_org_citra_citra_1emu_NativeLibrary_playTimeManagerGetPlayTime(JNIEnv* env, jobject obj,
+                                                                         jlong title_id) {
+    return static_cast<jlong>(play_time_manager->GetPlayTime(title_id));
+}
+
+jlong Java_org_citra_citra_1emu_NativeLibrary_playTimeManagerGetCurrentTitleId(JNIEnv* env,
+                                                                               jobject obj) {
+    return ptm_current_title_id;
+}
+
+void Java_org_citra_citra_1emu_NativeLibrary_setInsertedCartridge(JNIEnv* env, jobject obj,
+                                                                  jstring path) {
+    inserted_cartridge = GetJString(env, path);
+}
+
+jboolean Java_org_citra_citra_1emu_NativeLibrary_uninstallTitle(JNIEnv* env, jobject obj,
+                                                                jlong j_titleid, jint j_mediatype) {
+    const auto titleid = static_cast<u64>(j_titleid);
+    const auto result =
+        Service::AM::UninstallProgram(static_cast<Service::FS::MediaType>(j_mediatype), titleid);
+    if (result.IsError()) {
+        LOG_ERROR(Frontend, "Failed to uninstall '{}': 0x{:08X}", std::to_string(titleid),
+                  result.raw);
+        return false;
+    }
+    return true;
+}
+
+jboolean Java_org_citra_citra_1emu_NativeLibrary_nativeFileExists(JNIEnv* env, jobject obj,
+                                                                  jstring j_path) {
+    const auto path = GetJString(env, j_path);
+    return FileUtil::Exists(path);
+}
+
+void Java_org_citra_citra_1emu_NativeLibrary_deleteOpenGLShaderCache(JNIEnv* env, jobject obj,
+                                                                     jlong title_id) {
+    for (const std::string_view cache_type : {"separable", "conventional"}) {
+        const std::string path =
+            fmt::format("{}opengl/precompiled/{}/{:016X}.bin",
+                        FileUtil::GetUserPath(FileUtil::UserPath::ShaderDir), cache_type, title_id);
+        LOG_INFO(Frontend, "Deleting shader file: {}", path);
+        FileUtil::Delete(path);
+    }
+    const std::string path =
+        fmt::format("{}opengl/transferable/{:016X}.bin",
+                    FileUtil::GetUserPath(FileUtil::UserPath::ShaderDir), title_id);
+    LOG_INFO(Frontend, "Deleting shader file: {}", path);
+    FileUtil::Delete(path);
+}
+
+void Java_org_citra_citra_1emu_NativeLibrary_deleteVulkanShaderCache(JNIEnv* env, jobject obj,
+                                                                     jlong title_id) {
+    for (const std::string_view cache_type : {"vs", "fs", "gs", "pl"}) {
+        const std::string path =
+            fmt::format("{}vulkan/transferable/{:016X}_{}.vkch",
+                        FileUtil::GetUserPath(FileUtil::UserPath::ShaderDir), title_id, cache_type);
+        LOG_INFO(Frontend, "Deleting shader file: {}", path);
+        FileUtil::Delete(path);
+    }
+
+    FileUtil::ForeachDirectoryEntry(
+        nullptr,
+        fmt::format("{}vulkan/pipeline", FileUtil::GetUserPath(FileUtil::UserPath::ShaderDir)),
+        [title_id]([[maybe_unused]] u64* num_entries_out, const std::string& directory,
+                   const std::string& virtual_name) {
+            if (virtual_name.starts_with(fmt::format("{:016X}", title_id))) {
+                std::string path = directory + DIR_SEP + virtual_name;
+                LOG_INFO(Frontend, "Deleting shader file: {}", path);
+                FileUtil::Delete(path);
+            }
+            return true;
+        });
 }
 
 } // extern "C"

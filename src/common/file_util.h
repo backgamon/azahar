@@ -4,6 +4,7 @@
 
 // Copyright Dolphin Emulator Project
 // Licensed under GPLv2 or any later version
+// Refer to the license.txt file included.
 
 #pragma once
 
@@ -14,6 +15,9 @@
 #include <ios>
 #include <limits>
 #include <memory>
+#ifdef HAVE_LIBRETRO
+#include <mutex>
+#endif
 #include <optional>
 #include <span>
 #include <string>
@@ -29,6 +33,17 @@
 #include "common/common_types.h"
 #ifdef _MSC_VER
 #include "common/string_util.h"
+#endif
+#if defined(ANDROID) && !defined(HAVE_LIBRETRO_VFS)
+#include "android_storage.h"
+#endif
+
+#ifdef HAVE_LIBRETRO_VFS
+#define SKIP_STDIO_REDEFINES
+#include <streams/file_stream_transforms.h>
+#define CORE_FILE RFILE
+#else
+#define CORE_FILE std::FILE
 #endif
 
 namespace FileUtil {
@@ -50,7 +65,6 @@ enum class UserPath {
     LoadDir,
     LogDir,
     NANDDir,
-    PlayTimeDir,
     RootDir,
     SDMCDir,
     ShaderDir,
@@ -120,7 +134,7 @@ private:
 [[nodiscard]] u64 GetSize(int fd);
 
 // Overloaded GetSize, accepts FILE*
-[[nodiscard]] u64 GetSize(FILE* f);
+[[nodiscard]] u64 GetSize(CORE_FILE* f);
 
 // Returns true if successful, or path already exists.
 bool CreateDir(const std::string& filename);
@@ -135,13 +149,13 @@ bool Delete(const std::string& filename);
 // Deletes a directory filename, returns true on success
 bool DeleteDir(const std::string& filename);
 
-// renames file srcFilename to destFilename, returns true on success
-bool Rename(const std::string& srcFilename, const std::string& destFilename);
+// Renames file srcFullPath to destFullPath, returns true on success
+bool Rename(const std::string& srcFullPath, const std::string& destFullPath);
 
-// copies file srcFilename to destFilename, returns true on success
+// Copies file srcFilename to destFilename, returns true on success
 bool Copy(const std::string& srcFilename, const std::string& destFilename);
 
-// creates an empty file filename, returns true on success
+// Creates an empty file filename, returns true on success
 bool CreateEmptyFile(const std::string& filename);
 
 /**
@@ -300,8 +314,9 @@ public:
 
     void Swap(IOFile& other) noexcept;
 
-    bool Close();
+    virtual bool Close();
 
+    /// Returns the amount of T items read
     template <typename T>
     std::size_t ReadArray(T* data, std::size_t length) {
         static_assert(std::is_trivially_copyable_v<T>,
@@ -314,16 +329,18 @@ public:
         return items_read;
     }
 
+    /// Returns the amount of bytes read
     template <typename T>
     std::size_t ReadAtArray(T* data, std::size_t length, std::size_t offset) {
         static_assert(std::is_trivially_copyable_v<T>,
                       "Given array does not consist of trivially copyable objects");
 
-        std::size_t items_read = ReadAtImpl(data, length, sizeof(T), offset);
-        if (items_read != length)
+        const size_t bytes = length * sizeof(T);
+        std::size_t size_read = ReadAtImpl(data, bytes, offset);
+        if (size_read != bytes)
             m_good = false;
 
-        return items_read;
+        return size_read;
     }
 
     template <typename T>
@@ -386,15 +403,7 @@ public:
     [[nodiscard]] size_t ReadSpan(std::span<T> data) {
         static_assert(std::is_trivially_copyable_v<T>, "Data type must be trivially copyable.");
 
-#ifdef todotodo
         return ReadImpl(data.data(), data.size(), sizeof(T));
-#else
-        if (!IsOpen()) {
-            return 0;
-        }
-
-        return std::fread(data.data(), sizeof(T), data.size(), m_file);
-#endif
     }
 
     /**
@@ -416,33 +425,32 @@ public:
     [[nodiscard]] size_t WriteSpan(std::span<const T> data) {
         static_assert(std::is_trivially_copyable_v<T>, "Data type must be trivially copyable.");
 
-#ifdef todotodo
         return WriteImpl(data.data(), data.size(), sizeof(T));
-#else
-        if (!IsOpen()) {
-            return 0;
-        }
-
-        return std::fwrite(data.data(), sizeof(T), data.size(), m_file);
-#endif
     }
 
-    [[nodiscard]] bool IsOpen() const {
+    [[nodiscard]] virtual bool IsOpen() const {
         return nullptr != m_file;
     }
 
     // m_good is set to false when a read, write or other function fails
-    [[nodiscard]] bool IsGood() const {
+    [[nodiscard]] virtual bool IsGood() const {
         return m_good;
     }
-    [[nodiscard]] int GetFd() const {
-#ifdef ANDROID
-        return m_fd;
+    [[nodiscard]] virtual int GetFd() const {
+#ifdef HAVE_LIBRETRO_VFS
+        if (m_file == nullptr)
+            return -1;
+        return fileno(filestream_get_vfs_handle(m_file)->fp);
 #else
+#ifdef ANDROID
+        if (!AndroidStorage::CanUseRawFS()) {
+            return m_fd;
+        }
+#endif // ANDROID
         if (m_file == nullptr)
             return -1;
         return fileno(m_file);
-#endif
+#endif // HAVE_LIBRETRO_VFS
     }
     [[nodiscard]] explicit operator bool() const {
         return IsGood();
@@ -451,44 +459,63 @@ public:
     bool Seek(s64 off, int origin) {
         return SeekImpl(off, origin);
     }
-    [[nodiscard]] u64 Tell() const;
-    [[nodiscard]] u64 GetSize() const;
-    bool Resize(u64 size);
-    bool Flush();
+    u64 Tell() const {
+        return TellImpl();
+    }
+    virtual u64 GetSize() const;
+    virtual bool Resize(u64 size);
+    virtual bool Flush();
 
     // clear error state
-    void Clear() {
+    virtual void Clear() {
         m_good = true;
+
+#ifdef HAVE_LIBRETRO_VFS
+        filestream_rewind(m_file);
+#else
         std::clearerr(m_file);
+#endif
     }
 
     virtual bool IsCrypto() {
         return false;
     }
 
-    const std::string& Filename() const {
+    virtual bool IsCompressed() {
+        return false;
+    }
+
+    virtual const std::string& Filename() const {
         return filename;
     }
 
 protected:
     friend struct CryptoIOFileImpl;
+
+    virtual bool Open();
+
     virtual std::size_t ReadImpl(void* data, std::size_t length, std::size_t data_size);
-    virtual std::size_t ReadAtImpl(void* data, std::size_t length, std::size_t data_size,
-                                   std::size_t offset);
+    virtual std::size_t ReadAtImpl(void* data, std::size_t byte_count, std::size_t offset);
     virtual std::size_t WriteImpl(const void* data, std::size_t length, std::size_t data_size);
 
     virtual bool SeekImpl(s64 off, int origin);
+    virtual u64 TellImpl() const;
 
 private:
-    bool Open();
-
-    std::FILE* m_file = nullptr;
+    CORE_FILE* m_file = nullptr;
     int m_fd = -1;
     bool m_good = true;
+#ifdef HAVE_LIBRETRO_VFS
+    // pread() doesn't touch the file position, so it's safe alongside
+    // concurrent fread/fwrite. Libretro VFS has no pread equivalent, so
+    // ReadAtImpl emulates it with seek+read+seek, which would corrupt the
+    // file position for concurrent Read/Write operations.
+    mutable std::mutex m_file_pos_mutex;
+#endif
 
     std::string filename;
     std::string openmode;
-    u32 flags;
+    u32 flags = 0;
 
     template <class Archive>
     void serialize(Archive& ar, const unsigned int) {
@@ -528,8 +555,7 @@ private:
     std::unique_ptr<CryptoIOFileImpl> impl;
 
     std::size_t ReadImpl(void* data, std::size_t length, std::size_t data_size) override;
-    std::size_t ReadAtImpl(void* data, std::size_t length, std::size_t data_size,
-                           std::size_t offset) override;
+    std::size_t ReadAtImpl(void* data, std::size_t byte_count, std::size_t offset) override;
     std::size_t WriteImpl(const void* data, std::size_t length, std::size_t data_size) override;
 
     bool SeekImpl(s64 off, int origin) override;

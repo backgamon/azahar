@@ -56,12 +56,9 @@ private:
     void CheckCountryValid(u8 country);
 
     void InstallSecureData(const std::string& from_path, const std::string& to_path);
-    void InstallCTCert(const std::string& from_path);
     void RefreshSecureDataStatus();
 
     void SetupPerGameUI();
-
-    void DownloadFromNUS();
 
 private:
     std::unique_ptr<Ui::ConfigureSystem> ui;
