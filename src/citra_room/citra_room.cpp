@@ -1,4 +1,4 @@
-// Copyright 2017 Citra Emulator Project
+// Copyright Citra Emulator Project / Azahar Emulator Project
 // Licensed under GPLv2 or any later version
 // Refer to the license.txt file included.
 
@@ -19,7 +19,6 @@
 
 #include "common/common_paths.h"
 #include "common/common_types.h"
-#include "common/detached_tasks.h"
 #include "common/file_util.h"
 #include "common/logging/backend.h"
 #include "common/logging/log.h"
@@ -56,7 +55,6 @@ static void PrintHelp(const char* argv0) {
                  "--web-api-url       Citra Web API url\n"
                  "--ban-list-file     The file for storing the room ban list\n"
                  "--log-file          The file for storing the room log\n"
-                 "--enable-citra-mods Allow Citra Community Moderators to moderate on your room\n"
                  "-h, --help          Display this help and exit\n"
                  "-v, --version       Output version information and exit\n";
 }
@@ -161,10 +159,14 @@ static void InitializeLogging(const std::string& log_file) {
 }
 
 /// Application entry point
-int main(int argc, char** argv) {
-    Common::DetachedTasks detached_tasks;
+int LaunchRoom(int argc, char** argv, bool called_by_option) {
     int option_index = 0;
     char* endarg;
+
+    char* new_argv0 = argv[0];
+    if (called_by_option) {
+        strcat(new_argv0, " --room");
+    }
 
     std::string room_name;
     std::string room_description;
@@ -178,7 +180,6 @@ int main(int argc, char** argv) {
     u64 preferred_game_id = 0;
     u16 port = Network::DefaultRoomPort;
     u32 max_members = 16;
-    bool enable_citra_mods = false;
 
     static struct option long_options[] = {
         {"room-name", required_argument, 0, 'n'},
@@ -188,23 +189,26 @@ int main(int argc, char** argv) {
         {"password", required_argument, 0, 'w'},
         {"preferred-app", required_argument, 0, 's'},
         {"preferred-app-id", required_argument, 0, 'i'},
-        {"username", optional_argument, 0, 'u'},
+        {"username", required_argument, 0, 'u'},
         {"token", required_argument, 0, 't'},
         {"web-api-url", required_argument, 0, 'a'},
         {"ban-list-file", required_argument, 0, 'b'},
         {"log-file", required_argument, 0, 'l'},
-        {"enable-citra-mods", no_argument, 0, 'e'},
         {"help", no_argument, 0, 'h'},
         {"version", no_argument, 0, 'v'},
         // Removed options
+        {"enable-citra-mods", no_argument, 0, 'e'},
         {"preferred-game", optional_argument, 0, 'g'},
         {"preferred-game-id", optional_argument, 0, 0},
+        // Entry option
+        {"room", 0, 0, 0},
 
         {0, 0, 0, 0},
     };
 
     while (optind < argc) {
-        int arg = getopt_long(argc, argv, "n:d:p:m:w:s:u:t:a:i:l:hvg", long_options, &option_index);
+        int arg =
+            getopt_long(argc, argv, "n:d:p:m:w:s:u:t:a:i:l:hveg", long_options, &option_index);
         if (arg != -1) {
             switch (static_cast<char>(arg)) {
             case 'n':
@@ -243,15 +247,15 @@ int main(int argc, char** argv) {
             case 'l':
                 log_file.assign(optarg);
                 break;
-            case 'e':
-                enable_citra_mods = true;
-                break;
             case 'h':
                 PrintHelp(argv[0]);
                 return 0;
             case 'v':
                 PrintVersion();
                 return 0;
+            case 'e':
+                PrintRemovedOptionWarning(argv[0], "--enable-citra-mods/-e");
+                return 255;
             case 'g':
                 PrintRemovedOptionWarning(argv[0], "--preferred-game/-g");
                 return 255;
@@ -317,10 +321,6 @@ int main(int argc, char** argv) {
             NetSettings::values.citra_token = token;
         }
     }
-    if (!announce && enable_citra_mods) {
-        enable_citra_mods = false;
-        std::cout << "Can not enable Citra Moderators for private rooms\n\n";
-    }
 
     InitializeLogging(log_file);
 
@@ -347,8 +347,7 @@ int main(int argc, char** argv) {
     Network::Init();
     if (std::shared_ptr<Network::Room> room = Network::GetRoom().lock()) {
         if (!room->Create(room_name, room_description, "", port, password, max_members, username,
-                          preferred_game, preferred_game_id, std::move(verify_backend), ban_list,
-                          enable_citra_mods)) {
+                          preferred_game, preferred_game_id, std::move(verify_backend), ban_list)) {
             std::cout << "Failed to create room: \n\n";
             return -1;
         }
@@ -376,6 +375,5 @@ int main(int argc, char** argv) {
         room->Destroy();
     }
     Network::Shutdown();
-    detached_tasks.WaitForAllTasks();
     return 0;
 }

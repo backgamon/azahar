@@ -1,4 +1,4 @@
-// Copyright 2019 Citra Emulator Project
+// Copyright Citra Emulator Project / Azahar Emulator Project
 // Licensed under GPLv2 or any later version
 // Refer to the license.txt file included.
 
@@ -25,7 +25,10 @@ bool EmuWindow_Android::OnSurfaceChanged(ANativeWindow* surface) {
     render_window = surface;
     window_info.type = Frontend::WindowSystemType::Android;
     window_info.render_surface = surface;
-
+    if (surface != nullptr) {
+        window_width = ANativeWindow_getWidth(surface);
+        window_height = ANativeWindow_getHeight(surface);
+    }
     StopPresenting();
     OnFramebufferSizeChanged();
     return true;
@@ -49,16 +52,16 @@ void EmuWindow_Android::OnFramebufferSizeChanged() {
 
     const int bigger{window_width > window_height ? window_width : window_height};
     const int smaller{window_width < window_height ? window_width : window_height};
-    if (is_portrait_mode) {
+    if (is_portrait_mode && !is_secondary) {
         UpdateCurrentFramebufferLayout(smaller, bigger, is_portrait_mode);
     } else {
         UpdateCurrentFramebufferLayout(bigger, smaller, is_portrait_mode);
     }
 }
 
-EmuWindow_Android::EmuWindow_Android(ANativeWindow* surface) : host_window{surface} {
+EmuWindow_Android::EmuWindow_Android(ANativeWindow* surface, bool is_secondary)
+    : EmuWindow{is_secondary}, host_window(surface) {
     LOG_DEBUG(Frontend, "Initializing EmuWindow_Android");
-
     if (!surface) {
         LOG_CRITICAL(Frontend, "surface is nullptr");
         return;

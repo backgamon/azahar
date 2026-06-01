@@ -49,6 +49,9 @@ add_library(citra_qt STATIC EXCLUDE_FROM_ALL
     configuration/configure_layout.cpp
     configuration/configure_layout.h
     configuration/configure_layout.ui
+    configuration/configure_layout_cycle.cpp
+    configuration/configure_layout_cycle.h
+    configuration/configure_layout_cycle.ui
     configuration/configure_dialog.cpp
     configuration/configure_dialog.h
     configuration/configure_general.cpp
@@ -171,15 +174,16 @@ add_library(citra_qt STATIC EXCLUDE_FROM_ALL
     multiplayer/state.cpp
     multiplayer/state.h
     multiplayer/validation.h
-    play_time_manager.cpp
-    play_time_manager.h
+    notification_led.cpp
+    notification_led.h
     precompiled_headers.h
+    qt_image_interface.cpp
+    qt_image_interface.h
+    setting_qkeys.h
     uisettings.cpp
     uisettings.h
     user_data_migration.cpp
     user_data_migration.h
-    qt_image_interface.cpp
-    qt_image_interface.h
     util/clickable_label.cpp
     util/clickable_label.h
     util/graphics_device_info.cpp
@@ -191,6 +195,15 @@ add_library(citra_qt STATIC EXCLUDE_FROM_ALL
     util/util.cpp
     util/util.h
 )
+
+target_include_directories(citra_qt PUBLIC ${CMAKE_BINARY_DIR}/src)
+
+if (APPLE)
+  target_sources(citra_qt PUBLIC
+    qt_swizzle.h
+    qt_swizzle.mm
+  )
+endif()
 
 file(GLOB COMPAT_LIST
      ${PROJECT_BINARY_DIR}/dist/compatibility_list/compatibility_list.qrc
@@ -212,10 +225,13 @@ if (ENABLE_QT_TRANSLATION)
     if (GENERATE_QT_TRANSLATION)
         get_target_property(QT_SRCS citra_qt SOURCES)
         get_target_property(QT_INCLUDES citra_qt INCLUDE_DIRECTORIES)
-        qt_add_lupdate(citra_qt TS_FILES ${CITRA_QT_LANGUAGES}/en.ts
+        qt_add_lupdate(
+            LUPDATE_TARGET citra_qt_lupdate
             SOURCES ${QT_SRCS} ${UIS}
+            TS_FILES ${CITRA_QT_LANGUAGES}/en.ts
             INCLUDE_DIRECTORIES ${QT_INCLUDES}
-            NO_GLOBAL_TARGET)
+            NO_GLOBAL_TARGET
+        )
         add_custom_target(translation ALL DEPENDS citra_qt_lupdate)
     endif()
 
@@ -264,6 +280,10 @@ target_link_libraries(citra_qt PRIVATE audio_core citra_common citra_core input_
 target_link_libraries(citra_qt PRIVATE Boost::boost nihstro-headers Qt6::Widgets Qt6::Multimedia Qt6::Concurrent)
 target_link_libraries(citra_qt PRIVATE ${PLATFORM_LIBRARIES} Threads::Threads)
 
+if (MINGW)
+    target_link_libraries(citra_qt PRIVATE dwmapi)
+endif()
+
 if (ENABLE_OPENGL)
     target_link_libraries(citra_qt PRIVATE glad)
 endif()
@@ -273,10 +293,18 @@ if (ENABLE_VULKAN)
 endif()
 
 if (NOT WIN32)
-    target_include_directories(citra_qt PRIVATE ${Qt6Gui_PRIVATE_INCLUDE_DIRS})
+    find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets)
+    if(Qt6_VERSION VERSION_GREATER_EQUAL "6.10.0")
+        find_package(Qt6 REQUIRED COMPONENTS GuiPrivate)
+        target_link_libraries(citra_qt PRIVATE Qt6::GuiPrivate)
+    else()
+        target_include_directories(citra_qt PRIVATE ${Qt6Gui_PRIVATE_INCLUDE_DIRS})
+    endif()
 endif()
 
-if (UNIX AND NOT APPLE)
+if (APPLE)
+    target_link_libraries(citra_qt PRIVATE Qt6::QDarwinCameraPermissionPlugin)
+elseif (UNIX)
     target_link_libraries(citra_qt PRIVATE Qt6::DBus gamemode)
 endif()
 

@@ -1,3 +1,5 @@
+//FILE MODIFIED BY AzaharPlus APRIL 2025
+
 // Copyright Citra Emulator Project / Azahar Emulator Project
 // Licensed under GPLv2 or any later version
 // Refer to the license.txt file included.
@@ -51,7 +53,6 @@ namespace Service::AM {
 namespace ErrCodes {
 enum {
     InvalidImportState = 4,
-    CIACurrentlyInstalling = 4,
     InvalidTID = 31,
     EmptyCIA = 32,
     TryingToUninstallSystemApp = 44,
@@ -88,13 +89,6 @@ enum class ImportTitleContextState : u8 {
     NEEDS_CLEANUP = 6,
 };
 
-enum class CTCertLoadStatus {
-    Loaded,
-    NotFound,
-    Invalid,
-    IOError,
-};
-
 struct ImportTitleContext {
     u64 title_id;
     u16 version;
@@ -113,23 +107,14 @@ struct ImportContentContext {
 };
 static_assert(sizeof(ImportContentContext) == 0x18, "Invalid ImportContentContext size");
 
-struct CTCert {
-    u32_be signature_type{};
-    std::array<u8, 0x1E> signature_r{};
-    std::array<u8, 0x1E> signature_s{};
-    INSERT_PADDING_BYTES(0x40) {};
-    std::array<char, 0x40> issuer{};
-    u32_be key_type{};
-    std::array<char, 0x40> key_id{};
-    u32_be expiration_time{};
-    std::array<u8, 0x1E> public_key_x{};
-    std::array<u8, 0x1E> public_key_y{};
-    INSERT_PADDING_BYTES(0x3C) {};
-
-    bool IsValid() const;
-    u32 GetDeviceID() const;
+struct TitleInfo {
+    u64_le tid;
+    u64_le size;
+    u16_le version;
+    u16_le unused;
+    u32_le type;
 };
-static_assert(sizeof(CTCert) == 0x180, "Invalid CTCert size.");
+static_assert(sizeof(TitleInfo) == 0x18, "Title info structure size is wrong");
 
 // Title ID valid length
 constexpr std::size_t TITLE_ID_VALID_LENGTH = 16;
@@ -152,7 +137,7 @@ private:
     friend class CIAFile;
     std::unique_ptr<FileUtil::IOFile> file;
     bool is_error = false;
-//    bool is_not_ncch = false;
+    bool is_not_ncch = false;
     bool decryption_authorized = false;
 
     std::size_t written = 0;
@@ -196,19 +181,35 @@ void AuthorizeCIAFileDecryption(CIAFile* cia_file, Kernel::HLERequestContext& ct
 // A file handled returned for CIAs to be written into and subsequently installed.
 class CIAFile final : public FileSys::FileBackend {
 public:
+    class InstallResult {
+    public:
+        enum class Type {
+            NONE,
+            TIK,
+            TMD,
+            APP,
+        };
+        Type type{Type::NONE};
+        std::string install_full_path{};
+        Result result{0};
+    };
+
     explicit CIAFile(Core::System& system_, Service::FS::MediaType media_type,
                      bool from_cdn = false);
     ~CIAFile();
 
     ResultVal<std::size_t> Read(u64 offset, std::size_t length, u8* buffer) const override;
-    Result WriteTicket();
-    Result WriteTitleMetadata(std::span<const u8> tmd_data, std::size_t offset);
+    InstallResult WriteTicket();
+    InstallResult WriteTitleMetadata(std::span<const u8> tmd_data, std::size_t offset);
     ResultVal<std::size_t> WriteContentData(u64 offset, std::size_t length, const u8* buffer);
     ResultVal<std::size_t> Write(u64 offset, std::size_t length, bool flush, bool update_timestamp,
                                  const u8* buffer) override;
 
+    Result PrepareToImportContent(const FileSys::TitleMetadata& tmd);
     Result ProvideTicket(const FileSys::Ticket& ticket);
+    Result ProvideTMDForAdditionalContent(const FileSys::TitleMetadata& tmd);
     const FileSys::TitleMetadata& GetTMD();
+    FileSys::Ticket& GetTicket();
     CIAInstallState GetCiaInstallState() {
         return install_state;
     }
@@ -225,8 +226,20 @@ public:
         is_done = true;
     }
 
+    void Cancel() {
+        is_cancel = true;
+        Close();
+    }
+
+    const std::vector<InstallResult>& GetInstallResults() const {
+        return install_results;
+    }
+
+    void AuthorizeDecryptionFromHLE();
+
 private:
     friend void AuthorizeCIAFileDecryption(CIAFile* cia_file, Kernel::HLERequestContext& ctx);
+
     Core::System& system;
 
     // Sections (tik, tmd, contents) are being imported individually
@@ -234,6 +247,8 @@ private:
     bool decryption_authorized;
     bool is_done = false;
     bool is_closed = false;
+    bool is_cancel = false;
+    bool is_additional_content = false;
 
     // Whether it's installing an update, and what step of installation it is at
     bool is_update = false;
@@ -249,6 +264,8 @@ private:
     std::vector<std::string> content_file_paths;
     u16 current_content_index = -1;
     std::unique_ptr<NCCHCryptoFile> current_content_file;
+    InstallResult current_content_install_result{};
+    std::vector<InstallResult> install_results;
     std::vector<FileUtil::IOFile> content_files;
     Service::FS::MediaType media_type;
 
@@ -260,11 +277,13 @@ class CurrentImportingTitle {
 public:
     explicit CurrentImportingTitle(Core::System& system_, u64 title_id_,
                                    Service::FS::MediaType media_type_)
-        : cia_file(system_, media_type_, true), title_id(title_id_), media_type(media_type_) {}
+        : cia_file(system_, media_type_, true), title_id(title_id_), media_type(media_type_),
+          tmd_provided(false) {}
 
     CIAFile cia_file;
     u64 title_id;
     Service::FS::MediaType media_type;
+    bool tmd_provided;
 };
 
 // A file handled returned for Tickets to be written into and subsequently installed.
@@ -360,6 +379,19 @@ private:
  */
 InstallStatus InstallCIA(const std::string& path,
                          std::function<ProgressCallback>&& update_callback = nullptr);
+
+/**
+ * Checks if the provided path is a valid CIA file
+ * that can be installed.
+ * @param path file path of the CIA file to check to install
+ */
+InstallStatus CheckCIAToInstall(const std::string& path, bool& is_compressed,
+                                bool check_encryption);
+
+/**
+ * Get CIA metadata information from file.
+ */
+ResultVal<std::pair<TitleInfo, std::unique_ptr<Loader::SMDH>>> GetCIAInfos(const std::string& path);
 
 /**
  * Downloads and installs title form the Nintendo Update Service.
@@ -803,6 +835,17 @@ public:
         void BeginImportProgramTemporarily(Kernel::HLERequestContext& ctx);
 
         /**
+         * AM::CancelImportProgram service function
+         * Cancel importing a CTR Installable Archive
+         *  Inputs:
+         *      0 : Command header (0x04040002)
+         *      1-2 : CIAFile handle application wrote to
+         *  Outputs:
+         *      1 : Result, 0 on success, otherwise error code
+         */
+        void CancelImportProgram(Kernel::HLERequestContext& ctx);
+
+        /**
          * AM::EndImportProgram service function
          * Finish importing from a CTR Installable Archive
          *  Inputs:
@@ -1039,6 +1082,16 @@ public:
 
         void ListTicketInfos(Kernel::HLERequestContext& ctx);
 
+        void GetNumCurrentContentInfos(Kernel::HLERequestContext& ctx);
+
+        void FindCurrentContentInfos(Kernel::HLERequestContext& ctx);
+
+        void ListCurrentContentInfos(Kernel::HLERequestContext& ctx);
+
+        void CalculateContextRequiredSize(Kernel::HLERequestContext& ctx);
+
+        void UpdateImportContentContexts(Kernel::HLERequestContext& ctx);
+
         void ExportTicketWrapped(Kernel::HLERequestContext& ctx);
 
     protected:
@@ -1055,18 +1108,6 @@ public:
     void ForceN3DSDeviceID() {
         force_new_device_id = true;
     }
-
-    /**
-     * Gets the CTCert.bin path in the host filesystem
-     * @returns std::string CTCert.bin path in the host filesystem
-     */
-    static std::string GetCTCertPath();
-
-    /**
-     * Loads the CTCert.bin file from the filesystem.
-     * @returns CTCertLoadStatus indicating the file load status.
-     */
-    static CTCertLoadStatus LoadCTCertFile(CTCert& output);
 
 private:
     void ScanForTickets();
@@ -1100,7 +1141,6 @@ private:
     std::multimap<u64, u64> am_ticket_list;
 
     std::shared_ptr<Kernel::Mutex> system_updater_mutex;
-    CTCert ct_cert{};
     std::shared_ptr<CurrentImportingTitle> importing_title;
     std::map<u64, ImportTitleContext> import_title_contexts;
     std::multimap<u64, ImportContentContext> import_content_contexts;

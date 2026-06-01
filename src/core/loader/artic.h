@@ -26,23 +26,6 @@ public:
     Apploader_Artic(Core::System& system_, const std::string& server_addr, u16 server_port,
                     ArticInitMode init_mode);
 
-    Apploader_Artic(Core::System& system_, const std::string& server_addr, u16 server_port)
-        : AppLoader(system_, FileUtil::IOFile()) {
-        client = std::make_shared<Network::ArticBase::Client>(server_addr, server_port);
-        client->SetCommunicationErrorCallback([&system_](const std::string& msg) {
-            system_.SetStatus(Core::System::ResultStatus::ErrorArticDisconnected,
-                              msg.empty() ? nullptr : msg.c_str());
-        });
-        client->SetArticReportTrafficCallback(
-            [&system_](u32 bytes) { system_.ReportArticTraffic(bytes); });
-        client->SetReportArticEventCallback([&system_](u64 event) {
-            Core::PerfStats::PerfArticEventBits ev =
-                static_cast<Core::PerfStats::PerfArticEventBits>(event & 0xFFFFFFFF);
-            bool set = (event > 32) != 0;
-            system_.ReportPerfArticEvent(ev, set);
-        });
-    }
-
     ~Apploader_Artic() override;
 
     /**
@@ -50,10 +33,10 @@ public:
      * @param file FileUtil::IOFile open file
      * @return FileType found, or FileType::Error if this loader doesn't know it
      */
-    static FileType IdentifyType(FileUtil::IOFile& file);
+    static FileType IdentifyType(FileUtil::IOFile* file);
 
     FileType GetFileType() override {
-        return IdentifyType(file);
+        return IdentifyType(file.get());
     }
 
     [[nodiscard]] std::span<const u32> GetPreferredRegions() const override {
@@ -72,6 +55,8 @@ public:
 
     std::pair<std::optional<Kernel::New3dsHwCapabilities>, ResultStatus> LoadNew3dsHwCapabilities()
         override;
+
+    bool IsN3DSExclusive() override;
 
     ResultStatus IsExecutable(bool& out_executable) override;
 
@@ -110,7 +95,7 @@ public:
     }
 
 private:
-    static constexpr u32 SETUP_TOOL_VERSION = 1;
+    static constexpr u32 SETUP_TOOL_VERSION = 2;
     /**
      * Loads .code section into memory for booting
      * @param process The newly created process

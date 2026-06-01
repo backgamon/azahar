@@ -1,3 +1,5 @@
+//FILE MODIFIED BY AzaharPlus APRIL 2025
+
 // Copyright Citra Emulator Project / Azahar Emulator Project
 // Licensed under GPLv2 or any later version
 // Refer to the license.txt file included.
@@ -7,23 +9,31 @@ package org.citra.citra_emu
 import android.Manifest.permission
 import android.app.Dialog
 import android.content.DialogInterface
+import android.content.SharedPreferences
 import android.content.pm.PackageManager
 import android.content.res.Configuration
 import android.net.Uri
 import android.os.Bundle
+import android.os.Environment
 import android.text.Html
 import android.text.method.LinkMovementMethod
 import android.view.Surface
 import android.view.View
 import android.widget.TextView
 import androidx.annotation.Keep
+import androidx.annotation.StringRes
 import androidx.core.content.ContextCompat
+import androidx.core.net.toUri
 import androidx.fragment.app.DialogFragment
+import androidx.preference.PreferenceManager
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import org.citra.citra_emu.activities.EmulationActivity
-import org.citra.citra_emu.utils.EmulationMenuSettings
+import org.citra.citra_emu.model.Game
+import org.citra.citra_emu.utils.BuildUtil
 import org.citra.citra_emu.utils.FileUtil
 import org.citra.citra_emu.utils.Log
+import org.citra.citra_emu.utils.RemovableStorageHelper
+import org.citra.citra_emu.viewmodel.CompressProgressDialogViewModel
 import java.lang.ref.WeakReference
 import java.util.Date
 
@@ -97,6 +107,24 @@ object NativeLibrary {
      */
     external fun onTouchMoved(xAxis: Float, yAxis: Float)
 
+    /**
+     * Handles touch events on the secondary display.
+     *
+     * @param xAxis  The value of the x-axis.
+     * @param yAxis  The value of the y-axis.
+     * @param pressed To identify if the touch held down or released.
+     * @return true if the pointer is within the touchscreen
+     */
+    external fun onSecondaryTouchEvent(xAxis: Float, yAxis: Float, pressed: Boolean): Boolean
+
+    /**
+     * Handles touch movement on the secondary display.
+     *
+     * @param xAxis The value of the instantaneous x-axis.
+     * @param yAxis The value of the instantaneous y-axis.
+     */
+    external fun onSecondaryTouchMoved(xAxis: Float, yAxis: Float)
+
     external fun reloadSettings()
 
     external fun getTitleId(filename: String): Long
@@ -108,12 +136,38 @@ object NativeLibrary {
      * If not set, it auto-detects a location
      */
     external fun setUserDirectory(directory: String)
-    external fun getInstalledGamePaths(): Array<String?>
+
+    data class InstalledGame(
+        val path: String,
+        val mediaType: Game.MediaType
+    )
+    fun getInstalledGamePaths(): Array<InstalledGame> {
+        val games = getInstalledGamePathsImpl()
+
+        return games.mapNotNull { entry ->
+            entry?.let {
+                val sep = it.lastIndexOf('|')
+                if (sep == -1) return@mapNotNull null
+
+                val path = it.substring(0, sep)
+                val mediaType = Game.MediaType.fromInt(it.substring(sep + 1).toInt())
+
+                InstalledGame(path, mediaType!!)
+            }
+        }.toTypedArray()
+    }
+    private external fun getInstalledGamePathsImpl(): Array<String?>
 
     // Create the config.ini file.
     external fun createConfigFile()
     external fun createLogFile()
     external fun logUserDirectory(directory: String)
+
+    /**
+     * Set the inserted cartridge that will appear
+     * in the home menu. Empty string to clear.
+     */
+    external fun setInsertedCartridge(path: String)
 
     /**
      * Begins emulation.
@@ -124,6 +178,10 @@ object NativeLibrary {
     external fun surfaceChanged(surf: Surface)
     external fun surfaceDestroyed()
     external fun doFrame()
+
+    // Second window
+    external fun secondarySurfaceChanged(secondary_surface: Surface)
+    external fun secondarySurfaceDestroyed()
 
     /**
      * Unpauses emulation from a paused state.
@@ -186,7 +244,29 @@ object NativeLibrary {
 
     external fun unlinkConsole()
 
+    external fun setTemporaryFrameLimit(speed: Double)
+
+    external fun disableTemporaryFrameLimit()
+
+    external fun playTimeManagerInit()
+    external fun playTimeManagerStart(titleId: Long)
+    external fun playTimeManagerStop()
+    external fun playTimeManagerGetPlayTime(titleId: Long): Long
+    external fun playTimeManagerGetCurrentTitleId(): Long
+
+    private external fun uninstallTitle(titleId: Long, mediaType: Int): Boolean
+    fun uninstallTitle(titleId: Long, mediaType: Game.MediaType): Boolean {
+        return uninstallTitle(titleId, mediaType.value)
+    }
     external fun downloadTitleFromNus(title: Long): InstallStatus
+    external fun importZipPass(path: String): Int
+    external fun exportZipPass(path: String): Int
+    external fun clearStreetPassConfig(): Int
+
+    external fun nativeFileExists(path: String): Boolean
+
+    external fun deleteOpenGLShaderCache(titleId: Long)
+    external fun deleteVulkanShaderCache(titleId: Long)
 
     private var coreErrorAlertResult = false
     private val coreErrorAlertLock = Object()
@@ -235,6 +315,18 @@ object NativeLibrary {
             CoreError.ErrorArticDisconnected -> {
                 title = emulationActivity.getString(R.string.artic_base)
                 message = emulationActivity.getString(R.string.artic_server_comm_error)
+                canContinue = false
+            }
+
+            CoreError.ErrorN3DSApplication -> {
+                title = emulationActivity.getString(R.string.invalid_system_mode)
+                message = emulationActivity.getString(R.string.invalid_system_mode_message)
+                canContinue = false
+            }
+
+            CoreError.ErrorCoreExceptionRaised -> {
+                title = emulationActivity.getString(R.string.fatal_error)
+                message = emulationActivity.getString(R.string.fatal_error_message)
                 canContinue = false
             }
 
@@ -360,7 +452,7 @@ object NativeLibrary {
             return
         }
 
-        if (resultCode == EmulationErrorDialogFragment.ShutdownRequested) {
+        if (resultCode == CoreError.ShutdownRequested.value) {
             emulationActivity.finish()
             return
         }
@@ -379,23 +471,51 @@ object NativeLibrary {
         override fun onCreateDialog(savedInstanceState: Bundle?): Dialog {
             emulationActivity = requireActivity() as EmulationActivity
 
-            var captionId = R.string.loader_error_invalid_format
-            val result = requireArguments().getInt(RESULT_CODE)
-            if (result == ErrorLoader_ErrorEncrypted) {
-                captionId = R.string.loader_error_encrypted
-            }
-            if (result == ErrorArticDisconnected) {
-                captionId = R.string.artic_base
+            var coreError = CoreError.fromInt(requireArguments().getInt(RESULT_CODE))
+            val title: String
+            val message: String
+            when (coreError) {
+                CoreError.ErrorGetLoader, CoreError.ErrorLoader_ErrorInvalidFormat, CoreError.ErrorSystemMode -> {
+                    title = getString(R.string.loader_error_invalid_format)
+                    message = getString(R.string.loader_error_invalid_format_description)
+                }
+
+                CoreError.ErrorLoader_ErrorEncrypted -> {
+                    title = getString(R.string.loader_error_encrypted)
+                    message = getString(R.string.loader_error_encrypted_description)
+                }
+
+                CoreError.ErrorArticDisconnected -> {
+                    title = getString(R.string.artic_base)
+                    message = getString(R.string.artic_server_comm_error)
+                }
+
+                CoreError.ErrorN3DSApplication -> {
+                    title = getString(R.string.loader_error_invalid_system_mode)
+                    message = getString(R.string.loader_error_invalid_system_mode_description)
+                }
+
+                CoreError.ErrorLoader_ErrorPatches -> {
+                    title = getString(R.string.loader_error_applying_patches)
+                    message = getString(R.string.loader_error_applying_patches_description)
+                }
+
+                CoreError.ErrorLoader_ErrorPatchesInvalidTitle -> {
+                    title = getString(R.string.loader_error_applying_patches)
+                    message = getString(R.string.loader_error_patch_wrong_application)
+                }
+
+                else -> {
+                    title = getString(R.string.loader_error_generic_title)
+                    message = getString(R.string.loader_error_generic,
+                        getString(coreError.stringRes), coreError.value)
+                }
             }
 
             val alert = MaterialAlertDialogBuilder(requireContext())
-                .setTitle(captionId)
+                .setTitle(title)
                 .setMessage(
-                    Html.fromHtml(
-                        if (result == ErrorArticDisconnected)
-                            CitraApplication.appContext.resources.getString(R.string.artic_server_comm_error)
-                        else
-                            CitraApplication.appContext.resources.getString(R.string.redump_games),
+                    Html.fromHtml(message,
                     Html.FROM_HTML_MODE_LEGACY
                     )
                 )
@@ -416,20 +536,6 @@ object NativeLibrary {
             const val TAG = "EmulationErrorDialogFragment"
 
             const val RESULT_CODE = "resultcode"
-
-            const val Success = 0
-            const val ErrorNotInitialized = 1
-            const val ErrorGetLoader = 2
-            const val ErrorSystemMode = 3
-            const val ErrorLoader = 4
-            const val ErrorLoader_ErrorEncrypted = 5
-            const val ErrorLoader_ErrorInvalidFormat = 6
-            const val ErrorLoader_ErrorGBATitle = 7
-            const val ErrorSystemFiles = 8
-            const val ErrorSavestate = 9
-            const val ErrorArticDisconnected = 10
-            const val ShutdownRequested = 11
-            const val ErrorUnknown = 12
 
             fun newInstance(resultCode: Int): EmulationErrorDialogFragment {
                 val args = Bundle()
@@ -560,6 +666,47 @@ object NativeLibrary {
      */
     external fun logDeviceInfo()
 
+    enum class CompressStatus(val value: Int) {
+        SUCCESS(0),
+        COMPRESS_UNSUPPORTED(1),
+        COMPRESS_ALREADY_COMPRESSED(2),
+        COMPRESS_FAILED(3),
+        DECOMPRESS_UNSUPPORTED(4),
+        DECOMPRESS_NOT_COMPRESSED(5),
+        DECOMPRESS_FAILED(6),
+        INSTALLED_APPLICATION(7);
+
+        companion object {
+            fun fromValue(value: Int): CompressStatus =
+                CompressStatus.entries.first { it.value == value }
+        }
+    }
+
+    // Compression / Decompression
+    private external fun compressFileNative(inputPath: String?, outputPath: String): Int
+
+    fun compressFile(inputPath: String?, outputPath: String): CompressStatus {
+        return CompressStatus.fromValue(
+            compressFileNative(inputPath, outputPath)
+        )
+    }
+
+    private external fun decompressFileNative(inputPath: String?, outputPath: String): Int
+
+    fun decompressFile(inputPath: String?, outputPath: String): CompressStatus {
+        return CompressStatus.fromValue(
+            decompressFileNative(inputPath, outputPath)
+        )
+    }
+
+    external fun getRecommendedExtension(inputPath: String?, shouldCompress: Boolean): String
+
+    @Keep
+    @JvmStatic
+    fun onCompressProgress(total: Long, current: Long) {
+        CompressProgressDialogViewModel.update(total, current)
+    }
+
     @Keep
     @JvmStatic
     fun createFile(directory: String, filename: String): Boolean =
@@ -602,12 +749,61 @@ object NativeLibrary {
 
     @Keep
     @JvmStatic
+    fun getNativePath(uri: Uri): String {
+        BuildUtil.assertNotGooglePlay()
+
+        val dirSep = "/"
+
+        val uriString = uri.toString()
+        if (!uriString.contains(":")) { // These raw URIs happen when generating the game list. Why?
+            return uriString
+        }
+
+        if (uri.scheme == "file") {
+            return uri.path!!
+        }
+
+        val pathSegment = uri.lastPathSegment ?: return ""
+        val virtualPath = pathSegment.substringAfter(":")
+
+        if (pathSegment.startsWith("primary:")) { // User directory is located in primary storage
+            val primaryStoragePath = Environment.getExternalStorageDirectory().absolutePath
+            return primaryStoragePath + dirSep + virtualPath
+        } else { // User directory probably located on a removable storage device
+            val storageIdString = pathSegment.substringBefore(":")
+            val removablePath = RemovableStorageHelper.getRemovableStoragePath(CitraApplication.appContext, storageIdString)
+
+            if (removablePath == null) {
+                android.util.Log.e("NativeLibrary",
+                    "Unknown mount location for storage device '$storageIdString' (URI: $uri)"
+                )
+                return ""
+            }
+            return removablePath + dirSep + virtualPath
+        }
+    }
+
+    @Keep
+    @JvmStatic
+    fun getUserDirectory(): String {
+        val preferences: SharedPreferences =
+            PreferenceManager.getDefaultSharedPreferences(CitraApplication.appContext)
+        val userDirectoryUri = preferences.getString("CITRA_DIRECTORY", "")!!.toUri()
+        return getNativePath(userDirectoryUri)
+    }
+
+    @Keep
+    @JvmStatic
     fun getSize(path: String): Long =
         if (FileUtil.isNativePath(path)) {
             CitraApplication.documentsTree.getFileSize(path)
         } else {
             FileUtil.getFileSize(path)
         }
+
+    @Keep
+    @JvmStatic
+    fun getBuildFlavor(): String = BuildConfig.FLAVOR
 
     @Keep
     @JvmStatic
@@ -662,6 +858,24 @@ object NativeLibrary {
 
     @Keep
     @JvmStatic
+    fun updateDocumentLocation(sourcePath: String, destinationPath: String): Boolean =
+        CitraApplication.documentsTree.updateDocumentLocation(sourcePath, destinationPath)
+
+    @Keep
+    @JvmStatic
+    fun moveFile(filename: String, sourceDirPath: String, destinationDirPath: String): Boolean =
+        if (FileUtil.isNativePath(sourceDirPath)) {
+            try {
+                CitraApplication.documentsTree.moveFile(filename, sourceDirPath, destinationDirPath)
+            } catch (e: Exception) {
+                false
+            }
+        } else {
+            FileUtil.moveFile(filename, sourceDirPath, destinationDirPath)
+        }
+
+    @Keep
+    @JvmStatic
     fun deleteDocument(path: String): Boolean =
         if (FileUtil.isNativePath(path)) {
             CitraApplication.documentsTree.deleteDocument(path)
@@ -669,11 +883,31 @@ object NativeLibrary {
             FileUtil.deleteDocument(path)
         }
 
-    enum class CoreError {
-        ErrorSystemFiles,
-        ErrorSavestate,
-        ErrorArticDisconnected,
-        ErrorUnknown
+    enum class CoreError(val value: Int, @StringRes val stringRes: Int) {
+        Success(0, R.string.core_error_success),
+        ErrorNotInitialized(1, R.string.core_error_not_initialized),
+        ErrorGetLoader(2, R.string.core_error_get_loader),
+        ErrorSystemMode(3, R.string.core_error_system_mode),
+        ErrorLoader(4, R.string.core_error_loader),
+        ErrorLoader_ErrorEncrypted(5, R.string.core_error_loader_encrypted),
+        ErrorLoader_ErrorInvalidFormat(6, R.string.core_error_loader_invalid_format),
+        ErrorLoader_ErrorGBATitle(7, R.string.core_error_loader_gba_title),
+        ErrorLoader_ErrorPatches(8, R.string.core_error_loader_error_patches),
+        ErrorLoader_ErrorPatchesInvalidTitle(9, R.string.core_error_loader_patches_invalid_title),
+        ErrorSystemFiles(10, R.string.core_error_system_files),
+        ErrorSavestate(11, R.string.core_error_savestate),
+        ErrorArticDisconnected(12, R.string.core_error_artic_disconnected),
+        ErrorN3DSApplication(13, R.string.core_error_n3ds_application),
+        ErrorCoreExceptionRaised(14, R.string.core_error_core_exception_raised),
+        ErrorMemoryExceptionRaised(15, R.string.core_error_memory_exception_raised),
+        ShutdownRequested(16, R.string.core_error_shutdown_requested),
+        ErrorUnknown(17, R.string.core_error_unknown);
+
+        companion object {
+            fun fromInt(value: Int): CoreError {
+                return entries.find { it.value == value } ?: ErrorUnknown
+            }
+        }
     }
 
     enum class InstallStatus {
@@ -775,6 +1009,7 @@ object NativeLibrary {
         const val BUTTON_DEBUG = 781
         const val BUTTON_GPIO14 = 782
         const val BUTTON_SWAP = 800
+        const val BUTTON_TURBO = 801
     }
 
     /**
