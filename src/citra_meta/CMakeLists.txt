@@ -6,6 +6,11 @@ add_executable(citra_meta
 
 set_target_properties(citra_meta PROPERTIES OUTPUT_NAME "azahar")
 
+if (BSD STREQUAL "NetBSD")
+    include(DisablePaxMprotect)
+    disable_pax_mprotect(citra_meta)
+endif()
+
 if (APPLE)
     set(DIST_DIR "../../dist/apple")
     set(APPLE_RESOURCES
@@ -17,6 +22,8 @@ if (APPLE)
 
     # Define app bundle metadata.
     include(GenerateBuildInfo)
+    set(SRC_DIR "${PROJECT_SOURCE_DIR}")
+    generate_build_info()
     set_target_properties(citra_meta PROPERTIES
         MACOSX_BUNDLE TRUE
         MACOSX_BUNDLE_INFO_PLIST "${DIST_DIR}/Info.plist.in"
@@ -41,19 +48,44 @@ if (APPLE)
     endif()
 endif()
 
-target_link_libraries(citra_meta PRIVATE fmt)
-
-if (ENABLE_SDL2_FRONTEND)
-    target_link_libraries(citra_meta PRIVATE citra_sdl)
+if(CMAKE_HOST_SYSTEM_NAME STREQUAL "Linux" AND MINGW)
+    # TODO: Do this for all executables, not just citra_meta
+    # TODO: Don't hardcode MXE directory to root?
+    set(dllwalker_command "${CMAKE_SOURCE_DIR}/externals/dllwalker/dllwalker.rb"
+                          $<TARGET_FILE:citra_meta>
+                          /mxe/usr/x86_64-w64-mingw32.shared/bin/
+                          /mxe/usr/x86_64-w64-mingw32.shared/qt6/bin/)
+    set(dll_list_filename "${CMAKE_CURRENT_BINARY_DIR}/required_dlls_list.txt")
+    add_custom_command(TARGET citra_meta POST_BUILD
+        COMMAND ${dllwalker_command} > ${dll_list_filename}
+    )
+    add_custom_command(TARGET citra_meta POST_BUILD
+        COMMAND cat ${dll_list_filename} | xargs -I {} ${CMAKE_COMMAND} -E copy {} $<TARGET_FILE_DIR:citra_meta>
+        COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:citra_meta>/plugins/"
+        COMMAND ${CMAKE_COMMAND} -E copy_directory /mxe/usr/x86_64-w64-mingw32.shared/qt6/plugins/ "$<TARGET_FILE_DIR:citra_meta>/plugins/"
+        COMMAND_EXPAND_LISTS
+        DEPENDS ${dll_list_filename}
+    )
 endif()
+
+target_link_libraries(citra_meta PRIVATE citra_cli citra_common fmt)
 
 if (ENABLE_QT)
     target_link_libraries(citra_meta PRIVATE citra_qt)
     target_link_libraries(citra_meta PRIVATE Boost::boost Qt6::Widgets)
 endif()
 
+if (ENABLE_ROOM)
+    target_link_libraries(citra_meta PRIVATE citra_room)
+endif()
+
 if (ENABLE_QT AND UNIX AND NOT APPLE)
     target_link_libraries(citra_meta PRIVATE Qt6::DBus gamemode)
+endif()
+
+if (ENABLE_QT AND APPLE)
+    find_package(Qt6 REQUIRED COMPONENTS GuiPrivate)
+    target_link_libraries(citra_meta PRIVATE Qt6::GuiPrivate)
 endif()
 
 if (ENABLE_QT AND USE_DISCORD_PRESENCE)
@@ -71,6 +103,10 @@ endif()
 
 if (CITRA_USE_PRECOMPILED_HEADERS)
     target_precompile_headers(citra_meta PRIVATE precompiled_headers.h)
+endif()
+
+if (SSE42_COMPILE_OPTION)
+    target_compile_definitions(citra_meta PRIVATE CITRA_HAS_SSE42)
 endif()
 
 # Bundle in-place on MSVC so dependencies can be resolved by builds.

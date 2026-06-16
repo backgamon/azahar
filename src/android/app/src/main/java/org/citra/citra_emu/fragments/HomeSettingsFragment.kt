@@ -1,3 +1,5 @@
+//FILE MODIFIED BY AzaharPlus APRIL 2025
+
 // Copyright 2023 Citra Emulator Project
 // Licensed under GPLv2 or any later version
 // Refer to the license.txt file included.
@@ -11,6 +13,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.view.ViewGroup.MarginLayoutParams
 import android.widget.Toast
+import android.widget.Toast.LENGTH_LONG
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.ViewCompat
@@ -28,23 +31,25 @@ import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.transition.MaterialSharedAxis
 import org.citra.citra_emu.CitraApplication
 import org.citra.citra_emu.HomeNavigationDirections
+import org.citra.citra_emu.NativeLibrary
 import org.citra.citra_emu.R
 import org.citra.citra_emu.adapters.HomeSettingAdapter
 import org.citra.citra_emu.databinding.DialogSoftwareKeyboardBinding
 import org.citra.citra_emu.databinding.FragmentHomeSettingsBinding
+import org.citra.citra_emu.features.settings.SettingKeys
 import org.citra.citra_emu.features.settings.model.Settings
-import org.citra.citra_emu.features.settings.model.StringSetting
 import org.citra.citra_emu.features.settings.ui.SettingsActivity
 import org.citra.citra_emu.features.settings.utils.SettingsFile
 import org.citra.citra_emu.model.Game
 import org.citra.citra_emu.model.HomeSetting
 import org.citra.citra_emu.ui.main.MainActivity
+import org.citra.citra_emu.utils.FileUtil
 import org.citra.citra_emu.utils.GameHelper
-import org.citra.citra_emu.utils.PermissionsHandler
-import org.citra.citra_emu.viewmodel.HomeViewModel
 import org.citra.citra_emu.utils.GpuDriverHelper
 import org.citra.citra_emu.utils.Log
+import org.citra.citra_emu.utils.PermissionsHandler
 import org.citra.citra_emu.viewmodel.DriverViewModel
+import org.citra.citra_emu.viewmodel.HomeViewModel
 
 class HomeSettingsFragment : Fragment() {
     private var _binding: FragmentHomeSettingsBinding? = null
@@ -83,13 +88,65 @@ class HomeSettingsFragment : Fragment() {
                 { SettingsActivity.launch(requireContext(), SettingsFile.FILE_NAME_CONFIG, "") }
             ),
             HomeSetting(
+                R.string.grid_menu_core_export_zippass,
+                R.string.export_zippass_description,
+                R.drawable.ic_zippass_export,
+                {
+                    val rand = (1000..9999).random()
+                    mainActivity.zipPassExporter.launch("myExport_$rand")
+                }
+            ),
+            HomeSetting(
+                R.string.grid_menu_core_import_zippass,
+                R.string.import_zippass_description,
+                R.drawable.ic_zippass_import,
+                {
+                    mainActivity.zipPassImporter.launch(true)
+                }
+            ),
+            HomeSetting(
+                R.string.multiplayer,
+                R.string.multiplayer_description,
+                R.drawable.ic_multiplayer,
+                { mainActivity.displayMultiplayerDialog() }
+            ),
+            HomeSetting(
+                R.string.install_game_content,
+                R.string.install_game_content_description,
+                R.drawable.ic_install,
+                { mainActivity.ciaFileInstaller.launch(true) }
+            ),
+            HomeSetting(
+                R.string.system_files_download,
+                R.string.system_files_description,
+                R.drawable.ic_system_update,
+                {
+                    exitTransition = MaterialSharedAxis(MaterialSharedAxis.X, true)
+                    parentFragmentManager.primaryNavigationFragment?.findNavController()
+                        ?.navigate(R.id.action_homeSettingsFragment_to_systemFilesDownloadFragment)
+                }
+            ),
+            HomeSetting(
+                R.string.setup_system_files,
+                R.string.setup_system_files_description,
+                R.drawable.ic_system_update,
+                {
+                    exitTransition = MaterialSharedAxis(MaterialSharedAxis.X, true)
+                    parentFragmentManager.primaryNavigationFragment?.findNavController()
+                        ?.navigate(R.id.action_homeSettingsFragment_to_systemFilesFragment)
+                }
+            ),
+            HomeSetting(
                 R.string.artic_base_connect,
                 R.string.artic_base_connect_description,
                 R.drawable.ic_network,
                 {
                     val inflater = LayoutInflater.from(context)
                     val inputBinding = DialogSoftwareKeyboardBinding.inflate(inflater)
-                    var textInputValue: String = preferences.getString("last_artic_base_addr", "")!!
+                    var textInputValue: String = preferences.getString(
+                        SettingKeys.last_artic_base_addr(),
+                        ""
+                    )!!
 
                     inputBinding.editTextInput.setText(textInputValue)
                     inputBinding.editTextInput.doOnTextChanged { text, _, _, _ ->
@@ -103,7 +160,10 @@ class HomeSettingsFragment : Fragment() {
                             .setPositiveButton(android.R.string.ok) { _, _ ->
                                 if (textInputValue.isNotEmpty()) {
                                     preferences.edit()
-                                        .putString("last_artic_base_addr", textInputValue)
+                                        .putString(
+                                            SettingKeys.last_artic_base_addr(),
+                                            textInputValue
+                                        )
                                         .apply()
                                     val menu = Game(
                                         title = getString(R.string.artic_base),
@@ -115,26 +175,10 @@ class HomeSettingsFragment : Fragment() {
                                     binding.root.findNavController().navigate(action)
                                 }
                             }
-                            .setNegativeButton(android.R.string.cancel) {_, _ -> }
+                            .setNegativeButton(android.R.string.cancel) { _, _ -> }
                             .show()
                     }
                 }
-            ),
-            HomeSetting(
-                R.string.system_files,
-                R.string.system_files_description,
-                R.drawable.ic_system_update,
-                {
-                    exitTransition = MaterialSharedAxis(MaterialSharedAxis.X, true)
-                    parentFragmentManager.primaryNavigationFragment?.findNavController()
-                        ?.navigate(R.id.action_homeSettingsFragment_to_systemFilesFragment)
-                }
-            ),
-            HomeSetting(
-                R.string.install_game_content,
-                R.string.install_game_content_description,
-                R.drawable.ic_install,
-                { mainActivity.ciaFileInstaller.launch(true) }
             ),
             HomeSetting(
                 R.string.share_log,
@@ -159,7 +203,7 @@ class HomeSettingsFragment : Fragment() {
                 R.string.select_citra_user_folder,
                 R.string.select_citra_user_folder_home_description,
                 R.drawable.ic_home,
-                { mainActivity?.openCitraDirectory?.launch(null) },
+                { PermissionsHandler.compatibleSelectDirectory(mainActivity.openCitraDirectory) },
                 details = homeViewModel.userDir
             ),
             HomeSetting(
@@ -174,6 +218,16 @@ class HomeSettingsFragment : Fragment() {
                 R.string.theme_and_color_description,
                 R.drawable.ic_palette,
                 { SettingsActivity.launch(requireContext(), Settings.SECTION_THEME, "") }
+            ),
+            HomeSetting(
+                R.string.clear_streetpass_config,
+                R.string.clear_streetpass_config_description,
+                R.drawable.ic_clear_streetpass,
+                {
+                    NativeLibrary.clearStreetPassConfig()
+                    Toast.makeText(CitraApplication.appContext, R.string.zippass_clear_success, Toast.LENGTH_LONG)
+                        .show()
+                }
             ),
             HomeSetting(
                 R.string.about,
@@ -267,37 +321,36 @@ class HomeSettingsFragment : Fragment() {
         }
     }
 
-    private fun setInsets() =
-        ViewCompat.setOnApplyWindowInsetsListener(
-            binding.root
-        ) { view: View, windowInsets: WindowInsetsCompat ->
-            val barInsets = windowInsets.getInsets(WindowInsetsCompat.Type.systemBars())
-            val cutoutInsets = windowInsets.getInsets(WindowInsetsCompat.Type.displayCutout())
-            val spacingNavigation = resources.getDimensionPixelSize(R.dimen.spacing_navigation)
-            val spacingNavigationRail =
-                resources.getDimensionPixelSize(R.dimen.spacing_navigation_rail)
+    private fun setInsets() = ViewCompat.setOnApplyWindowInsetsListener(
+        binding.root
+    ) { view: View, windowInsets: WindowInsetsCompat ->
+        val barInsets = windowInsets.getInsets(WindowInsetsCompat.Type.systemBars())
+        val cutoutInsets = windowInsets.getInsets(WindowInsetsCompat.Type.displayCutout())
+        val spacingNavigation = resources.getDimensionPixelSize(R.dimen.spacing_navigation)
+        val spacingNavigationRail =
+            resources.getDimensionPixelSize(R.dimen.spacing_navigation_rail)
 
-            val leftInsets = barInsets.left + cutoutInsets.left
-            val rightInsets = barInsets.right + cutoutInsets.right
+        val leftInsets = barInsets.left + cutoutInsets.left
+        val rightInsets = barInsets.right + cutoutInsets.right
 
-            binding.scrollViewSettings.updatePadding(
-                top = barInsets.top,
-                bottom = barInsets.bottom
-            )
+        binding.scrollViewSettings.updatePadding(
+            top = barInsets.top,
+            bottom = barInsets.bottom
+        )
 
-            val mlpScrollSettings = binding.scrollViewSettings.layoutParams as MarginLayoutParams
-            mlpScrollSettings.leftMargin = leftInsets
-            mlpScrollSettings.rightMargin = rightInsets
-            binding.scrollViewSettings.layoutParams = mlpScrollSettings
+        val mlpScrollSettings = binding.scrollViewSettings.layoutParams as MarginLayoutParams
+        mlpScrollSettings.leftMargin = leftInsets
+        mlpScrollSettings.rightMargin = rightInsets
+        binding.scrollViewSettings.layoutParams = mlpScrollSettings
 
-            binding.linearLayoutSettings.updatePadding(bottom = spacingNavigation)
+        binding.linearLayoutSettings.updatePadding(bottom = spacingNavigation)
 
-            if (ViewCompat.getLayoutDirection(view) == ViewCompat.LAYOUT_DIRECTION_LTR) {
-                binding.linearLayoutSettings.updatePadding(left = spacingNavigationRail)
-            } else {
-                binding.linearLayoutSettings.updatePadding(right = spacingNavigationRail)
-            }
-
-            windowInsets
+        if (ViewCompat.getLayoutDirection(view) == ViewCompat.LAYOUT_DIRECTION_LTR) {
+            binding.linearLayoutSettings.updatePadding(left = spacingNavigationRail)
+        } else {
+            binding.linearLayoutSettings.updatePadding(right = spacingNavigationRail)
         }
+
+        windowInsets
+    }
 }

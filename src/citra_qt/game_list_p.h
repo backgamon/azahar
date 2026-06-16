@@ -1,7 +1,8 @@
-// Copyright 2015 Citra Emulator Project
+//FILE MODIFIED BY AzaharPlus APRIL 2025
+
+// Copyright Citra Emulator Project / Azahar Emulator Project
 // Licensed under GPLv2 or any later version
 // Refer to the license.txt file included.
-
 #pragma once
 
 #include <algorithm>
@@ -18,13 +19,14 @@
 #include <QStandardItem>
 #include <QString>
 #include <QWidget>
-#include "citra_qt/play_time_manager.h"
 #include "citra_qt/uisettings.h"
 #include "citra_qt/util/util.h"
 #include "common/file_util.h"
 #include "common/logging/log.h"
+#include "common/play_time_manager.h"
 #include "common/string_util.h"
 #include "core/loader/smdh.h"
+#include "core/hle/service/cecd/cecd.h"
 
 namespace Service::FS {
 enum class MediaType : u32;
@@ -146,6 +148,34 @@ static const std::unordered_map<UISettings::GameListIconSize, int> IconSizes{
     {UISettings::GameListIconSize::LargeIcon, 48},
 };
 
+static int getNumMessages(std::string cecId)
+{
+	std::string inboxPath = FileUtil::GetUserPath(FileUtil::UserPath::NANDDir)
+		+ "/data/00000000000000000000000000000000/sysdata/00010026/00000000/CEC/" 
+		+ cecId + "/InBox___";
+	
+	if (!FileUtil::IsDirectory(inboxPath))
+	{
+		LOG_ERROR(HW, "no inbox {}", inboxPath);
+		return 0;
+	}
+	
+	std::string boxInfoPath = inboxPath + "/BoxInfo_____";
+	
+	if (!FileUtil::Exists(boxInfoPath))
+	{
+		LOG_ERROR(HW, "no boxInfo {}", boxInfoPath);
+		return 0;
+	}
+	
+	struct Service::CECD::Module::CecBoxInfoHeader boxInfo;
+	FileUtil::IOFile bfile(boxInfoPath, "rb");
+	bfile.ReadBytes(&boxInfo, sizeof(Service::CECD::Module::CecBoxInfoHeader));
+	bfile.Close();
+	
+	return boxInfo.message_num;
+}
+
 /**
  * A specialization of GameListItem for path values.
  * This class ensures that for every full path value it holds, a correct string representation
@@ -160,15 +190,18 @@ public:
     static constexpr int ExtdataIdRole = SortRole + 4;
     static constexpr int LongTitleRole = SortRole + 5;
     static constexpr int MediaTypeRole = SortRole + 6;
+    static constexpr int CanInsertRole = SortRole + 7;
 
     GameListItemPath() = default;
     GameListItemPath(const QString& game_path, std::span<const u8> smdh_data, u64 program_id,
-                     u64 extdata_id, Service::FS::MediaType media_type, bool is_encrypted) {
+                     u64 extdata_id, Service::FS::MediaType media_type, bool is_encrypted,
+                     bool can_insert) {
         setData(type(), TypeRole);
         setData(game_path, FullPathRole);
         setData(qulonglong(program_id), ProgramIdRole);
         setData(qulonglong(extdata_id), ExtdataIdRole);
         setData(quint32(media_type), MediaTypeRole);
+        setData(quint32(can_insert), CanInsertRole);
 
         if (UISettings::values.game_list_icon_size.GetValue() ==
             UISettings::GameListIconSize::NoIcon) {
@@ -228,8 +261,18 @@ public:
                 {UISettings::GameListText::TitleID,
                  QString::fromStdString(fmt::format("{:016X}", data(ProgramIdRole).toULongLong()))},
             };
-
-            const QString& row1 =
+			std::string streetpassPrefix;
+			std::string cecId = FileUtil::getCecId(fmt::format("{:016X}", data(ProgramIdRole).toULongLong()));
+			
+			if(cecId.length() == 8)
+			{
+				int n = getNumMessages(cecId);
+				
+				if(n > 0)
+					streetpassPrefix = "[ " + std::to_string(n) + " ]   ";
+			}
+			
+            const QString& row1 = QString::fromStdString(streetpassPrefix) +
                 display_texts.at(UISettings::values.game_list_row_1.GetValue()).simplified();
 
             if (role == SortRole)
@@ -384,7 +427,7 @@ public:
 
     void setData(const QVariant& value, int role) override {
         qulonglong time_seconds = value.toULongLong();
-        GameListItem::setData(PlayTime::ReadablePlayTime(time_seconds), Qt::DisplayRole);
+        GameListItem::setData(ReadableDuration(time_seconds), Qt::DisplayRole);
         GameListItem::setData(value, PlayTimeRole);
     }
 

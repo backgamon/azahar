@@ -1,4 +1,4 @@
-// Copyright 2018 Citra Emulator Project
+// Copyright Citra Emulator Project / Azahar Emulator Project
 // Licensed under GPLv2 or any later version
 // Refer to the license.txt file included.
 
@@ -59,7 +59,7 @@ public:
     GatewayCheat(std::string name, std::string code, std::string comments);
     ~GatewayCheat();
 
-    void Execute(Core::System& system) const override;
+    void Execute(Core::System& system, u32 process_id) const override;
 
     bool IsEnabled() const override;
     void SetEnabled(bool enabled) override;
@@ -69,6 +69,9 @@ public:
     std::string GetType() const override;
     std::string GetCode() const override;
     std::string ToString() const override;
+	
+	void SetBuiltIn(bool builtIn) override;
+    bool IsBuiltIn() const override;
 
     /// Gateway cheats look like:
     ///     [Name]
@@ -84,5 +87,6 @@ private:
     const std::string name;
     std::vector<CheatLine> cheat_lines;
     const std::string comments;
+	bool built_in = false;
 };
 } // namespace Cheats

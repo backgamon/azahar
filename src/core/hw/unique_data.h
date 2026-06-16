@@ -1,3 +1,5 @@
+//FILE MODIFIED BY AzaharPlus APRIL 2025
+
 // Copyright Citra Emulator Project / Azahar Emulator Project
 // Licensed under GPLv2 or any later version
 // Refer to the license.txt file included.
@@ -16,6 +18,19 @@ class OTP;
 } // namespace FileSys
 
 namespace HW::UniqueData {
+
+struct Region {
+    enum : u8 {
+        JPN,
+        USA,
+        EUR,
+        AUS,
+        CHN,
+        KOR,
+        TWN,
+    };
+    static constexpr u8 COUNT = TWN + 1;
+};
 
 struct SecureInfoA {
     std::array<u8, 0x100> signature;
@@ -122,10 +137,13 @@ static_assert(sizeof(MovableSedFull) == 0x140);
 enum class SecureDataLoadStatus {
     Loaded = 0,
     InvalidSignature = 1,
+    RegionChanged = 2,
+    CannotValidateSignature = 3,
 
     NotFound = -1,
     Invalid = -2,
     IOError = -3,
+    NoCryptoKeys = -4,
 };
 
 SecureDataLoadStatus LoadSecureInfoA();
@@ -157,4 +175,8 @@ std::unique_ptr<FileUtil::IOFile> OpenUniqueCryptoFile(const std::string& filena
 
 bool IsFullConsoleLinked();
 void UnlinkConsole();
+
+std::vector<std::string> GetAppFilepaths();
+int RemoveAzaharEncryption(const std::string& path);
+int RevertEncryptionRemoval();
 } // namespace HW::UniqueData

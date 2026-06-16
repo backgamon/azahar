@@ -1,4 +1,4 @@
-// Copyright Citra Emulator Project / Lime3DS Emulator Project
+// Copyright Citra Emulator Project / Azahar Emulator Project
 // Licensed under GPLv2 or any later version
 // Refer to the license.txt file included.
 
@@ -22,14 +22,13 @@ plugins {
 val autoVersion = (((System.currentTimeMillis() / 1000) - 1451606400) / 10).toInt()
 val abiFilter = listOf("arm64-v8a", "x86_64")
 
-val downloadedJniLibsPath = "${buildDir}/downloadedJniLibs"
+val downloadedJniLibsPath = "${layout.buildDirectory.get().asFile.path}/downloadedJniLibs"
 
-@Suppress("UnstableApiUsage")
 android {
     namespace = "org.citra.citra_emu"
 
     compileSdkVersion = "android-35"
-    ndkVersion = "27.1.12297006"
+    ndkVersion = "27.3.13750724"
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -51,6 +50,7 @@ android {
 
     buildFeatures {
         viewBinding = true
+        buildConfig = true
     }
 
     lint {
@@ -62,6 +62,7 @@ android {
     defaultConfig {
         // The application ID refers to Lime3DS to allow for
         // the Play Store listing, which was originally set up for Lime3DS, to still be used.
+        // applicationId = "org.azahar_emu.azahar"
         applicationId = "io.github.lime3ds.android"
 
         minSdk = 28
@@ -80,7 +81,9 @@ android {
                     "-DENABLE_QT=0", // Don't use QT
                     "-DENABLE_SDL2=0", // Don't use SDL
                     "-DANDROID_ARM_NEON=true", // cryptopp requires Neon to work
-                    "-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON" // Support Android 15 16KiB page sizes
+                    "-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON", // Support Android 15 16KiB page
+                    // sizes
+                    "-DENABLE_GDBSTUB=OFF" // Disable GDB stub
                 )
             }
         }
@@ -125,8 +128,8 @@ android {
             applicationIdSuffix = ".debug"
             versionNameSuffix = "-debug"
             signingConfig = signingConfigs.getByName("debug")
-            isMinifyEnabled = true
             isShrinkResources = true
+            // TODO: ^- Does this actually do anything when isDebuggable is enabled? -OS
             isDebuggable = true
             isJniDebuggable = true
             proguardFiles(
@@ -134,6 +137,24 @@ android {
                 "proguard-rules.pro"
             )
             isDefault = true
+        }
+
+        // Same as above, but with isDebuggable disabled.
+        // Primarily exists to allow development on hardened_malloc systems (e.g. GrapheneOS)
+        // without constantly tripping over years-old and seemingly harmless memory bugs.
+        // We should fix those bugs eventually, but for now this exists as a workaround to
+        // allow other work to be done on these devices.
+        register("relWithDebInfoLite") {
+            initWith(getByName("relWithDebInfo"))
+            signingConfig = signingConfigs.getByName("debug")
+            isDebuggable = false
+            installation {
+                enableBaselineProfile = false // Disabled by default when isDebuggable is true
+            }
+            lint {
+                checkReleaseBuilds = false // Ditto
+                // ^- The name of this property is misleading, this doesn't actually disable linting for the `release` build.
+            }
         }
 
         // Signed by debug key disallowing distribution on Play Store.
@@ -149,9 +170,22 @@ android {
 
     flavorDimensions.add("version")
 
+    productFlavors {
+        register("vanilla") {
+            isDefault = true
+            dimension = "version"
+            versionNameSuffix = "-vanilla"
+        }
+        register("googlePlay") {
+            dimension = "version"
+            versionNameSuffix = "-googleplay"
+            // applicationId = "io.github.lime3ds.android"
+        }
+    }
+
     externalNativeBuild {
         cmake {
-            version = "3.22.1"
+            version = "3.25.0+"
             path = file("../../../CMakeLists.txt")
         }
     }
@@ -187,8 +221,10 @@ dependencies {
 
 // Download Vulkan Validation Layers from the KhronosGroup GitHub.
 val downloadVulkanValidationLayers = tasks.register<Download>("downloadVulkanValidationLayers") {
-    src("https://github.com/KhronosGroup/Vulkan-ValidationLayers/releases/download/sdk-1.3.261.1/android-binaries-sdk-1.3.261.1-android.zip")
-    dest(file("${buildDir}/tmp/Vulkan-ValidationLayers.zip"))
+    src(
+        "https://github.com/KhronosGroup/Vulkan-ValidationLayers/releases/download/vulkan-sdk-1.4.313.0/android-binaries-1.4.313.0.zip"
+    )
+    dest(file("${layout.buildDirectory.get().asFile.path}/tmp/Vulkan-ValidationLayers.zip"))
     onlyIfModified(true)
 }
 
@@ -238,7 +274,7 @@ fun getGitHash(): String =
 fun getBranch(): String =
     runGitCommand(ProcessBuilder("git", "rev-parse", "--abbrev-ref", "HEAD")) ?: "dummy-branch"
 
-fun runGitCommand(command: ProcessBuilder) : String? {
+fun runGitCommand(command: ProcessBuilder): String? {
     try {
         command.directory(project.rootDir)
         val process = command.start()
@@ -264,7 +300,7 @@ android.applicationVariants.configureEach {
     val variant = this
     val capitalizedName = variant.name.capitalizeUS()
 
-    val copyTask = tasks.register("copyBundle${capitalizedName}") {
+    val copyTask = tasks.register("copyBundle$capitalizedName") {
         doLast {
             project.copy {
                 from(variant.outputs.first().outputFile.parentFile)
@@ -278,5 +314,5 @@ android.applicationVariants.configureEach {
             }
         }
     }
-    tasks.named("bundle${capitalizedName}").configure { finalizedBy(copyTask) }
+    tasks.named("bundle$capitalizedName").configure { finalizedBy(copyTask) }
 }

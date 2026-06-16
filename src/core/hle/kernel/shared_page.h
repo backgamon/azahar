@@ -30,6 +30,8 @@ namespace SharedPage {
 
 // See http://3dbrew.org/wiki/Configuration_Memory#Shared_Memory_Page_For_ARM11_Processes
 
+std::chrono::seconds GetInitTime(u64 override_init_time);
+
 struct DateTime {
     u64_le date_time;                  // 0
     u64_le update_tick;                // 8
@@ -46,9 +48,6 @@ union BatteryState {
 };
 
 using MacAddress = std::array<u8, 6>;
-
-// Default MAC address in the Nintendo 3DS range
-constexpr MacAddress DefaultMac = {0x40, 0xF4, 0x07, 0x00, 0x00, 0x00};
 
 enum class WifiLinkLevel : u8 {
     Off = 0,
