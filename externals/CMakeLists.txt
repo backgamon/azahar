@@ -526,5 +526,4 @@ else()
     message(STATUS "Disabling SIMD for xxHash")
 endif()
 
-set(ENABLE_OPENSSL OFF CACHE BOOL "" FORCE)
-add_subdirectory(libzip EXCLUDE_FROM_ALL)
+add_subdirectory(libzip)
