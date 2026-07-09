@@ -1206,7 +1206,9 @@ static std::map<std::string, std::string> amiibos = {
 	{"@22440000043e1b02", "Mio"},
 	{"@3f000000042e0002", "Sora"},
 	{"@1f00000004c41e03", "Kirby (&& Warp Star)"},
-	{"@1f03010004c91e03", "Bandana Waddle Dee (&& Winged Star)"}
+	{"@1f03010004c91e03", "Bandana Waddle Dee (&& Winged Star)"},
+	{"@010d000004a70902", "Mineru's Construct"},
+	{"@1f02000004c71e03", "King Dedede (&& Tank Star)"},
 };
 
 static std::map<std::string, std::string> amiibos_series = {
@@ -1397,8 +1399,7 @@ GMainWindow::GMainWindow(Core::System& system_)
             if (i >= args.size() - 1 || args[i + 1].startsWith(QChar::fromLatin1('-'))) {
                 continue;
             }
-            Settings::values.use_gdbstub = true;
-            Settings::values.gdbstub_port = strtoul(args[++i].toLatin1(), NULL, 0);
+            gdbport_from_arg = strtoul(args[++i].toLatin1(), NULL, 0);
             continue;
         }
 
@@ -1512,7 +1513,11 @@ GMainWindow::GMainWindow(Core::System& system_)
 
     LoadTranslation();
 
-    Pica::g_debug_context = Pica::DebugContext::Construct();
+    if (Settings::values.pica_debugging) {
+        Pica::g_debug_context = Pica::DebugContext::Construct();
+    } else {
+        Pica::g_debug_context.reset();
+    }
     setAcceptDrops(true);
     ui->setupUi(this);
     statusBar()->hide();
@@ -1806,8 +1811,12 @@ void GMainWindow::InitializeWidgets() {
 }
 
 void GMainWindow::InitializeDebugWidgets() {
-    connect(ui->action_Create_Pica_Surface_Viewer, &QAction::triggered, this,
-            &GMainWindow::OnCreateGraphicsSurfaceViewer);
+    if (Pica::g_debug_context) {
+        connect(ui->action_Create_Pica_Surface_Viewer, &QAction::triggered, this,
+                &GMainWindow::OnCreateGraphicsSurfaceViewer);
+    } else {
+        ui->action_Create_Pica_Surface_Viewer->setEnabled(false);
+    }
 
     QMenu* debug_menu = ui->menu_View_Debugging;
 
@@ -1826,35 +1835,37 @@ void GMainWindow::InitializeDebugWidgets() {
     connect(this, &GMainWindow::EmulationStopping, registersWidget,
             &RegistersWidget::OnEmulationStopping);
 
-    graphicsWidget = new GPUCommandStreamWidget(system, this);
-    addDockWidget(Qt::RightDockWidgetArea, graphicsWidget);
-    graphicsWidget->hide();
-    debug_menu->addAction(graphicsWidget->toggleViewAction());
+    if (Pica::g_debug_context) {
+        graphicsWidget = new GPUCommandStreamWidget(system, this);
+        addDockWidget(Qt::RightDockWidgetArea, graphicsWidget);
+        graphicsWidget->hide();
+        debug_menu->addAction(graphicsWidget->toggleViewAction());
 
-    graphicsCommandsWidget = new GPUCommandListWidget(system, this);
-    addDockWidget(Qt::RightDockWidgetArea, graphicsCommandsWidget);
-    graphicsCommandsWidget->hide();
-    debug_menu->addAction(graphicsCommandsWidget->toggleViewAction());
+        graphicsCommandsWidget = new GPUCommandListWidget(system, this);
+        addDockWidget(Qt::RightDockWidgetArea, graphicsCommandsWidget);
+        graphicsCommandsWidget->hide();
+        debug_menu->addAction(graphicsCommandsWidget->toggleViewAction());
 
-    graphicsBreakpointsWidget = new GraphicsBreakPointsWidget(Pica::g_debug_context, this);
-    addDockWidget(Qt::RightDockWidgetArea, graphicsBreakpointsWidget);
-    graphicsBreakpointsWidget->hide();
-    debug_menu->addAction(graphicsBreakpointsWidget->toggleViewAction());
+        graphicsBreakpointsWidget = new GraphicsBreakPointsWidget(Pica::g_debug_context, this);
+        addDockWidget(Qt::RightDockWidgetArea, graphicsBreakpointsWidget);
+        graphicsBreakpointsWidget->hide();
+        debug_menu->addAction(graphicsBreakpointsWidget->toggleViewAction());
 
-    graphicsVertexShaderWidget =
-        new GraphicsVertexShaderWidget(system, Pica::g_debug_context, this);
-    addDockWidget(Qt::RightDockWidgetArea, graphicsVertexShaderWidget);
-    graphicsVertexShaderWidget->hide();
-    debug_menu->addAction(graphicsVertexShaderWidget->toggleViewAction());
+        graphicsVertexShaderWidget =
+            new GraphicsVertexShaderWidget(system, Pica::g_debug_context, this);
+        addDockWidget(Qt::RightDockWidgetArea, graphicsVertexShaderWidget);
+        graphicsVertexShaderWidget->hide();
+        debug_menu->addAction(graphicsVertexShaderWidget->toggleViewAction());
 
-    graphicsTracingWidget = new GraphicsTracingWidget(system, Pica::g_debug_context, this);
-    addDockWidget(Qt::RightDockWidgetArea, graphicsTracingWidget);
-    graphicsTracingWidget->hide();
-    debug_menu->addAction(graphicsTracingWidget->toggleViewAction());
-    connect(this, &GMainWindow::EmulationStarting, graphicsTracingWidget,
-            &GraphicsTracingWidget::OnEmulationStarting);
-    connect(this, &GMainWindow::EmulationStopping, graphicsTracingWidget,
-            &GraphicsTracingWidget::OnEmulationStopping);
+        graphicsTracingWidget = new GraphicsTracingWidget(system, Pica::g_debug_context, this);
+        addDockWidget(Qt::RightDockWidgetArea, graphicsTracingWidget);
+        graphicsTracingWidget->hide();
+        debug_menu->addAction(graphicsTracingWidget->toggleViewAction());
+        connect(this, &GMainWindow::EmulationStarting, graphicsTracingWidget,
+                &GraphicsTracingWidget::OnEmulationStarting);
+        connect(this, &GMainWindow::EmulationStopping, graphicsTracingWidget,
+                &GraphicsTracingWidget::OnEmulationStopping);
+    }
 
     waitTreeWidget = new WaitTreeWidget(system, this);
     addDockWidget(Qt::LeftDockWidgetArea, waitTreeWidget);
@@ -2728,6 +2739,13 @@ void GMainWindow::BootGame(const QString& filename) {
         system.RegisterAppLoaderEarly(loader);
     }
 
+    // Override GDB settings if emulator was launched with
+    // GDB port option.
+    if (gdbport_from_arg != -1) {
+        system.SetGDBPortOverride(gdbport_from_arg);
+        system.SetDebugNextProcessFlag();
+    }
+
     system.ApplySettings();
 
     Settings::LogSettings();
@@ -2765,7 +2783,7 @@ void GMainWindow::BootGame(const QString& filename) {
     }
 
     // Register debug widgets
-    if (graphicsWidget->isVisible()) {
+    if (graphicsWidget && graphicsWidget->isVisible()) {
         graphicsWidget->Register();
     }
 
@@ -2853,10 +2871,12 @@ void GMainWindow::ShutdownGame() {
     // breakpoint after (or before) RequestStop() is called, the emulation would never be able
     // to continue out to the main loop and terminate. Thus wait() would hang forever.
     // TODO(bunnei): This function is not thread safe, but it's being used as if it were
-    Pica::g_debug_context->ClearBreakpoints();
+    if (Pica::g_debug_context) {
+        Pica::g_debug_context->ClearBreakpoints();
+    }
 
     // Unregister debug widgets
-    if (graphicsWidget->isVisible()) {
+    if (graphicsWidget && graphicsWidget->isVisible()) {
         graphicsWidget->Unregister();
     }
 
@@ -3556,28 +3576,33 @@ void GMainWindow::OnMenuSetUpSystemFiles() {
 
     QRadioButton radio1(&dialog);
     QRadioButton radio2(&dialog);
+    QString new3dsSetupString = tr("Old 3DS setup");
+    QString old3dsSetupString = tr("New 3DS setup");
+    QString availableIcon = QStringLiteral("(\u2139\uFE0F) ");
+    QString unavailableIcon = QStringLiteral("(\u26A0) ");
+    QString installedIcon = QStringLiteral("(\u2705) ");
     if (!install_state.first) {
         radio1.setChecked(true);
 
-        radio1.setText(tr("(\u2139\uFE0F) Old 3DS setup"));
+        radio1.setText(availableIcon + old3dsSetupString);
         radio1.setToolTip(tr("Setup is possible."));
 
-        radio2.setText(tr("(\u26A0) New 3DS setup"));
+        radio2.setText(unavailableIcon + new3dsSetupString);
         radio2.setToolTip(tr("Old 3DS setup is required first."));
         radio2.setEnabled(false);
     } else {
-        radio1.setText(tr("(\u2705) Old 3DS setup"));
+        radio1.setText(installedIcon + old3dsSetupString);
         radio1.setToolTip(tr("Setup completed."));
 
         if (!install_state.second) {
             radio2.setChecked(true);
 
-            radio2.setText(tr("(\u2139\uFE0F) New 3DS setup"));
+            radio2.setText(availableIcon + new3dsSetupString);
             radio2.setToolTip(tr("Setup is possible."));
         } else {
             radio1.setChecked(true);
 
-            radio2.setText(tr("(\u2705) New 3DS setup"));
+            radio2.setText(installedIcon + new3dsSetupString);
             radio2.setToolTip(tr("Setup completed."));
         }
     }
@@ -3865,6 +3890,7 @@ void GMainWindow::UninstallTitles(
     } else if (!future_watcher.isCanceled()) {
         QMessageBox::information(this, tr("Azahar"),
                                  tr("Successfully uninstalled '%1'.").arg(first_name));
+        emit InstalledTitlesChanged();
     }
 }
 
@@ -3911,7 +3937,14 @@ void GMainWindow::OnMenuAmiiboFileAction() {
 													tr("Amiibo (*.bin)"));
 	if(fileName.length() == 0) return;
 	
-	Service::NFC::makeAmiiboFile(amiiboId.toStdString(), fileName.toStdString());
+	std::string sfilename = fileName.toStdString();
+	
+	if(!fileName.endsWith(QStringLiteral(".bin")))
+	{
+		sfilename = sfilename + ".bin";
+	}
+	
+	Service::NFC::makeAmiiboFile(amiiboId.toStdString(), sfilename);
 }
 
 void GMainWindow::OnMenuAmiiboAction() {
@@ -5937,6 +5970,9 @@ int LaunchQtFrontend(int argc, char* argv[]) {
 
     QObject::connect(&app, &QGuiApplication::applicationStateChanged, &main_window,
                      &GMainWindow::OnAppFocusStateChanged);
+
+    // Process any pending events before executing the app (prevents freeze-on–boot on macOS)
+    app.processEvents();
 
 	Core::importQueuedZipPass();
 	
