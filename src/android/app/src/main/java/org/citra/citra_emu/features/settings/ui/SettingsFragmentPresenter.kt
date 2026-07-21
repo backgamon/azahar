@@ -14,6 +14,7 @@ import android.os.Build
 import android.text.TextUtils
 import androidx.preference.PreferenceManager
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import org.citra.citra_emu.BuildConfig
 import org.citra.citra_emu.CitraApplication
 import org.citra.citra_emu.R
 import org.citra.citra_emu.display.ScreenLayout
@@ -46,6 +47,7 @@ import org.citra.citra_emu.features.settings.model.view.SwitchSetting
 import org.citra.citra_emu.features.settings.utils.SettingsFile
 import org.citra.citra_emu.fragments.ResetSettingsDialogFragment
 import org.citra.citra_emu.utils.BirthdayMonth
+import org.citra.citra_emu.utils.BuildUtil
 import org.citra.citra_emu.utils.GraphicsUtil
 import org.citra.citra_emu.utils.Log
 import org.citra.citra_emu.utils.SystemSaveGame
@@ -106,6 +108,8 @@ class SettingsFragmentPresenter(private val fragmentView: SettingsFragmentView) 
             Settings.SECTION_RENDERER -> addGraphicsSettings(sl)
 
             Settings.SECTION_LAYOUT -> addLayoutSettings(sl)
+
+            Settings.SECTION_NETWORK -> addNetworkSettings(sl)
 
             Settings.SECTION_AUDIO -> addAudioSettings(sl)
 
@@ -198,6 +202,14 @@ class SettingsFragmentPresenter(private val fragmentView: SettingsFragmentView) 
             )
             add(
                 SubmenuSetting(
+                    R.string.preferences_network,
+                    0,
+                    R.drawable.ic_network,
+                    Settings.SECTION_NETWORK
+                )
+            )
+            add(
+                SubmenuSetting(
                     R.string.preferences_audio,
                     0,
                     R.drawable.ic_audio,
@@ -266,6 +278,31 @@ class SettingsFragmentPresenter(private val fragmentView: SettingsFragmentView) 
                     IntSetting.TURBO_LIMIT.defaultValue.toFloat()
                 )
             )
+            if (!BuildUtil.isGooglePlayBuild
+                && false) {
+                add(
+                    SwitchSetting(
+                        BooleanSetting.CHECK_FOR_UPDATES,
+                        R.string.check_for_updates,
+                        R.string.check_for_updates_description,
+                        BooleanSetting.CHECK_FOR_UPDATES.key,
+                        BooleanSetting.CHECK_FOR_UPDATES.defaultValue,
+                        isEnabled = !BuildConfig.DEBUG
+                    )
+                )
+                add(
+                    SingleChoiceSetting(
+                        IntSetting.UPDATE_CHECK_CHANNEL,
+                        R.string.update_check_channel,
+                        R.string.update_check_channel_description,
+                        R.array.updateCheckChannels,
+                        R.array.updateCheckChannelsValues,
+                        IntSetting.UPDATE_CHECK_CHANNEL.key,
+                        IntSetting.UPDATE_CHECK_CHANNEL.defaultValue,
+                        isEnabled = (!BuildConfig.DEBUG && BooleanSetting.CHECK_FOR_UPDATES.boolean)
+                    )
+                )
+            }
             add(
                 SwitchSetting(
                     BooleanSetting.ANDROID_HIDE_IMAGES,
@@ -438,7 +475,8 @@ class SettingsFragmentPresenter(private val fragmentView: SettingsFragmentView) 
                     usernameSetting,
                     R.string.username,
                     0,
-                    "AZAHAR",
+                    null,
+                    "AzaharPlus",
                     10
                 )
             )
@@ -1745,6 +1783,30 @@ class SettingsFragmentPresenter(private val fragmentView: SettingsFragmentView) 
                     "px",
                     IntSetting.PORTRAIT_BOTTOM_HEIGHT.key,
                     IntSetting.PORTRAIT_BOTTOM_HEIGHT.defaultValue.toFloat()
+                )
+            )
+        }
+    }
+
+    private fun addNetworkSettings(sl: ArrayList<SettingsItem>) {
+        settingsActivity.setToolbarTitle(settingsActivity.getString(R.string.preferences_network))
+        sl.apply {
+            add(
+                StringInputSetting(
+                    StringSetting.WEB_API_URL,
+                    R.string.web_api_url,
+                    R.string.web_api_url_description,
+                    StringSetting.WEB_API_URL.key,
+                    StringSetting.WEB_API_URL.defaultValue
+                )
+            )
+            add(
+                StringInputSetting(
+                    StringSetting.NETWORK_TOKEN,
+                    R.string.network_token,
+                    R.string.network_token_description,
+                    StringSetting.NETWORK_TOKEN.key,
+                    StringSetting.NETWORK_TOKEN.defaultValue
                 )
             )
         }
